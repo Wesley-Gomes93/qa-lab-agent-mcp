@@ -1,0 +1,47 @@
+{
+  "name": "mcp-lab-agent",
+  "version": "1.0.0",
+  "description": "MCP server + AI agents for QA automation in any project (Cypress, Playwright, Jest)",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-lab-agent": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "qa",
+    "testing",
+    "cypress",
+    "playwright",
+    "jest",
+    "cursor",
+    "ai-agent",
+    "test-automation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Wesley-Gomes93/mcp-lab-agent"
+  },
+  "author": "Wesley Gomes",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "dotenv": "^16.4.5",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5"
+  }
+}
