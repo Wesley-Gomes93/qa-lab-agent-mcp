@@ -1,49 +1,29 @@
 # mcp-lab-agent
 
-MCP server + AI agents para QA automation em **qualquer projeto**. Detecta automaticamente frameworks de teste e estrutura do projeto.
+[![npm version](https://img.shields.io/npm/v/mcp-lab-agent.svg)](https://www.npmjs.com/package/mcp-lab-agent)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## 📚 Documentação Rápida
+**MCP server** para QA automation em qualquer projeto. Detecta automaticamente frameworks de teste (Cypress, Playwright, Jest, Vitest e mais) e integra com o Cursor IDE via Model Context Protocol.
 
-| Guia | Descrição |
-|------|-----------|
-| 🚀 **[Quick Start](QUICKSTART.md)** | Instale em 2 minutos e comece a usar |
-| 📖 **[Como Usar](COMO_USAR.md)** | Guia completo de uso com exemplos |
-| 🧪 **[Teste Comigo](TESTE_COMIGO.md)** | Roteiro para testar e dar feedback |
-| 🔧 **[Instalação](INSTALL.md)** | Opções detalhadas de instalação |
-| ⚙️ **[Setup Cursor](CURSOR_SETUP.md)** | Configuração passo a passo |
-| 🚨 **[Troubleshooting](TROUBLESHOOTING.md)** | Solução de problemas |
-| 🎯 **[Frameworks](FRAMEWORKS.md)** | Frameworks suportados |
+---
 
-## Features
+## ✨ Features
 
-- **Detecção automática** de frameworks:
-  - **E2E/UI**: Cypress, Playwright, WebdriverIO
-  - **Unit/Integration**: Jest, Vitest, Mocha, Jasmine
-  - **Mobile**: Appium, Detox
-  - **API**: Supertest, Pactum
-  - **Python**: Robot Framework, pytest, Behave
-- **Execução de testes** com output estruturado (backend, frontend, mobile, API)
-- **Geração de testes** via LLM (Groq, Gemini, OpenAI)
-- **Análise de falhas** e sugestões de correção inteligentes
-- **Bug reports** automáticos em Markdown
-- **Linter** e **coverage** integrados
-- **Templates de teste** para API, UI e Unit
-- **Zero configuração**: funciona em projetos Node.js e Python
+| Categoria | Funcionalidades |
+|-----------|-----------------|
+| **Detecção** | Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot Framework, pytest, Behave, Appium, Detox |
+| **Execução** | Run tests, watch mode, coverage (Jest) |
+| **Geração** | Testes via LLM (Groq, Gemini, OpenAI), templates API/UI/Unit |
+| **Análise** | Análise de falhas, suggest_fix, suggest_selector_fix (self-healing) |
+| **Relatórios** | Bug reports em Markdown, métricas de negócio |
+| **Manutenção** | Linter, install dependencies, list_test_files |
 
-## Instalação e Uso no Cursor
+---
 
-### 🚀 Instalação Rápida (Recomendado)
+## 🚀 Instalação Rápida
 
-**1. Configure o MCP no Cursor:**
-
-Edite ou crie o arquivo `~/.cursor/mcp.json`:
-
-```bash
-mkdir -p ~/.cursor
-nano ~/.cursor/mcp.json
-```
-
-**2. Adicione a configuração:**
+**1. Configure o MCP no Cursor** (`~/.cursor/mcp.json`):
 
 ```json
 {
@@ -57,186 +37,98 @@ nano ~/.cursor/mcp.json
 }
 ```
 
-**3. Reinicie o Cursor**
+**2. Reinicie o Cursor**
 
-**4. Pronto!** Abra qualquer projeto e use normalmente no chat.
+**3. Use no chat:**
+
+```
+"Detecte a estrutura do meu projeto"
+"Rode os testes"
+"Gere um teste E2E para login"
+```
 
 ---
 
-### 📦 Outras Opções de Instalação
+## 📚 Documentação
 
-<details>
-<summary>Opção 1: Build Local (para desenvolvimento)</summary>
+| Guia | Descrição |
+|------|-----------|
+| [Quick Start](QUICKSTART.md) | Instalação em 2 minutos |
+| [Como Usar](COMO_USAR.md) | Exemplos e fluxos completos |
+| [Instalação](INSTALL.md) | Opções detalhadas |
+| [Setup Cursor](CURSOR_SETUP.md) | Configuração passo a passo |
+| [Frameworks](FRAMEWORKS.md) | Frameworks suportados |
+| [Troubleshooting](TROUBLESHOOTING.md) | Solução de problemas |
+
+---
+
+## 🧪 Testes e Qualidade
+
+O projeto possui **testes E2E** e **unitários** para garantir estabilidade.
 
 ```bash
-# Clone e instale
+# Rodar todos os testes
+npm test
+
+# Com cobertura
+npm run test:coverage
+
+# Relatório JSON
+npm run test:report
+```
+
+| Métrica | Descrição |
+|---------|-----------|
+| **E2E** | Comunicação MCP via stdio, ferramentas principais (detect_project, read_file, run_tests, etc.) |
+| **Unit** | Detecção em projetos vazios e com Vitest |
+| **Relatórios** | `test-results/results.json`, `test-results/QA_REPORT.md`, `coverage/` |
+
+Ver [test-results/QA_REPORT.md](test-results/QA_REPORT.md) para relatório detalhado.
+
+---
+
+## 🔧 Variáveis de Ambiente (opcional)
+
+Para `generate_tests`, `por_que_falhou` e `suggest_selector_fix` (LLM):
+
+| Variável | Provedor |
+|----------|----------|
+| `GROQ_API_KEY` | Groq (gratuito) |
+| `GEMINI_API_KEY` | Google Gemini |
+| `OPENAI_API_KEY` | OpenAI |
+
+---
+
+## 📦 Estrutura do Projeto
+
+```
+qa-lab-agent-mcp/
+├── src/
+│   └── index.js          # MCP server (tools, detecção, métricas)
+├── dist/                 # Build (tsup)
+├── test/
+│   ├── e2e/              # Testes end-to-end MCP
+│   ├── unit/             # Testes de detecção
+│   ├── fixtures/         # Projetos mock para testes
+│   └── utils/            # Cliente MCP para testes
+├── test-results/         # Relatórios de teste
+└── coverage/             # Cobertura
+```
+
+---
+
+## 🛠 Desenvolvimento
+
+```bash
 git clone https://github.com/Wesley-Gomes93/mcp-lab-agent
 cd mcp-lab-agent
 npm install
 npm run build
+npm test
 ```
 
-Configure no `~/.cursor/mcp.json`:
+---
 
-```json
-{
-  "mcpServers": {
-    "qa-lab-agent": {
-      "command": "node",
-      "args": ["/caminho/completo/para/mcp-lab-agent/dist/index.js"],
-      "cwd": "${workspaceFolder}"
-    }
-  }
-}
-```
+## 📄 Licença
 
-**Nota:** Substitua `/caminho/completo/para/mcp-lab-agent` pelo caminho real no seu sistema.
-
-</details>
-
-<details>
-<summary>Opção 2: Instalação Global com npm link</summary>
-
-```bash
-cd mcp-lab-agent
-sudo npm link
-```
-
-Configure no `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "qa-lab-agent": {
-      "command": "mcp-lab-agent",
-      "cwd": "${workspaceFolder}"
-    }
-  }
-}
-```
-
-</details>
-
-## Ferramentas disponíveis
-
-### Core Tools
-
-| Tool | Descrição |
-|------|-----------|
-| `detect_project` | Detecta frameworks, pastas de teste, backend, frontend |
-| `run_tests` | Executa testes (Cypress, Playwright, Jest, npm test) |
-| `read_project` | Lê package.json, specs existentes |
-| `generate_tests` | Gera spec com LLM (requer API key) |
-| `write_test` | Grava spec no disco |
-| `analyze_failures` | Analisa output de falhas e extrai stack traces |
-
-### Novas Ferramentas (v2.0)
-
-| Tool | Descrição |
-|------|-----------|
-| `suggest_fix` | Sugere correções para falhas detectadas (seletores, asserções, rede) |
-| `create_bug_report` | Gera bug report estruturado em Markdown a partir de falhas |
-| `list_test_files` | Lista todos os arquivos de teste (filtro por framework/pattern) |
-| `run_linter` | Executa ESLint/Prettier com auto-fix opcional |
-| `install_dependencies` | Instala dependências (npm/yarn/pnpm - detecta automaticamente) |
-| `get_test_coverage` | Gera relatório de cobertura de testes (Jest) |
-| `watch_tests` | Inicia testes em watch mode (Jest/Vitest) |
-| `create_test_template` | Gera boilerplate de teste (API/UI/Unit) para qualquer framework |
-| `suggest_selector_fix` | **Self-healing:** Sugere seletor alternativo quando UI muda (element not found) |
-| `get_business_metrics` | **Métricas de negócio:** Tempo até bug, custo por defeito, cobertura por fluxo |
-| `suggest_selector_fix` | **Self-healing:** Sugere correção de seletor quando UI muda (LLM) |
-| `get_business_metrics` | **Métricas de negócio:** Tempo até bug, custo por defeito, cobertura por fluxo |
-
-## Variáveis de ambiente (opcional)
-
-Para usar `generate_tests`, configure no `.env` do projeto:
-
-- **GROQ_API_KEY** — Groq (gratuito): https://console.groq.com/keys
-- **GEMINI_API_KEY** — Google Gemini (gratuito): https://aistudio.google.com/apikey
-- **OPENAI_API_KEY** — OpenAI (pago): https://platform.openai.com/api-keys
-
-## Como Usar
-
-### 💬 Conversação Natural
-
-**Você não precisa saber comandos especiais!** Apenas converse naturalmente com o Cursor:
-
-```
-"Detecte a estrutura do meu projeto"
-"Gere um teste para o fluxo de login"
-"Rode os testes"
-"Analise as falhas e sugira correções"
-"Crie um bug report das falhas"
-```
-
-O Cursor **automaticamente** identifica quando usar as ferramentas do MCP. Você não precisa mencionar nomes de ferramentas ou fazer configurações especiais.
-
-### 🎯 Exemplos Práticos
-
-**Começando em um projeto novo:**
-```
-Você: "Quais frameworks de teste estão instalados aqui?"
-Cursor: [usa detect_project automaticamente]
-
-Você: "Gere um teste E2E para o cadastro de usuários"
-Cursor: [usa generate_tests + write_test]
-
-Você: "Rode os testes"
-Cursor: [usa run_tests]
-```
-
-**Analisando falhas:**
-```
-Você: "Os testes falharam, me ajude a entender o que aconteceu"
-Cursor: [usa analyze_failures + suggest_fix]
-
-Você: "Crie um relatório dessas falhas"
-Cursor: [usa create_bug_report]
-```
-
-**Manutenção do projeto:**
-```
-Você: "Liste todos os testes de Cypress"
-Cursor: [usa list_test_files]
-
-Você: "Rode o linter e corrija os problemas"
-Cursor: [usa run_linter com auto-fix]
-
-Você: "Gere um relatório de cobertura"
-Cursor: [usa get_test_coverage]
-```
-
-### 🔧 Ferramentas Disponíveis (para referência)
-
-Você não precisa chamar essas ferramentas diretamente, mas é útil saber o que está disponível:
-
-| Categoria | Ferramentas |
-|-----------|-------------|
-| **Detecção** | `detect_project`, `read_project`, `list_test_files` |
-| **Execução** | `run_tests`, `watch_tests`, `get_test_coverage` |
-| **Geração** | `generate_tests`, `write_test`, `create_test_template` |
-| **Análise** | `analyze_failures`, `suggest_fix`, `suggest_selector_fix`, `create_bug_report` |
-| **Métricas** | `get_business_metrics` |
-| **Manutenção** | `run_linter`, `install_dependencies` |
-
-## Publicar no npm
-
-```bash
-npm run build
-npm login
-npm publish
-```
-
-Se o nome `mcp-lab-agent` já estiver em uso, use escopo: `@seu-usuario/mcp-lab-agent`.
-
-## Desenvolvimento local
-
-```bash
-npm install
-npm run build
-node dist/index.js  # testa o servidor
-```
-
-## Licença
-
-MIT
+MIT © Wesley Gomes

@@ -26,10 +26,23 @@ alwaysApply: true
 - Bug report → `create_bug_report`
 - Métricas de QA → `get_business_metrics`
 - Cobertura → `get_test_coverage`
+- Analisar métodos de arquivo → `analyze_file_methods` (varredura em cada método: correto?, melhor forma?, falso positivo?, coerente?, itens/params/imports faltando?)
+
+## Fluxos compostos (quando QA pedir "relatório", "métricas", "fluxo completo")
+
+Quando o usuário pedir um fluxo completo, execute em sequência:
+1. `detect_project` — entender o projeto
+2. `run_tests` — executar testes
+3. Se houve falha: `analyze_failures` + `create_bug_report`
+4. `get_test_coverage` — cobertura (Jest/Vitest)
+5. `get_business_metrics` — métricas de negócio (se qa-lab-flows.json existir)
+
+Ver **CHECKLIST_QA_AGENT.md** para lista completa de comandos que um QA jr pode pedir.
 
 ## Resumo
 
 | Usuário diz | O que fazer |
 |-------------|-------------|
 | "Liste os testes **com o qa-lab-agent**" | Usar MCP |
+| "Execute os testes e me dê relatório **com o qa-lab-agent**" | run_tests → create_bug_report (se falhar) → get_test_coverage |
 | "Liste os testes" | Comportamento normal (Cursor/agente padrão) |

@@ -347,6 +347,16 @@ function matchesFramework(inferred, requested) {
   return aliases[inferred]?.includes(requested);
 }
 
+function getFrameworkCwd(structure, preferredDirs) {
+  for (const dir of preferredDirs) {
+    if (structure.testDirs.includes(dir)) {
+      return path.join(PROJECT_ROOT, dir);
+    }
+  }
+  const fallback = structure.testDirs[0];
+  return fallback ? path.join(PROJECT_ROOT, fallback) : PROJECT_ROOT;
+}
+
 // ============================================================================
 // MÉTRICAS DE NEGÓCIO - Helpers
 // ============================================================================
@@ -1533,6 +1543,200 @@ ${testCode ? testCode.slice(0, 6000) : "Não disponível"}
     }
   }
 );
+
+server.registerTool(
+  "analyze_file_methods",
+  {
+    title: "Analisar métodos de um arquivo",
+    description: "Lê um arquivo, faz varredura em todos os métodos/funções e retorna análise detalhada: método correto?, melhor forma de escrever?, falso positivo?, coerência?, itens faltando?, parâmetros faltando?, imports faltando?. Requer API key (Groq/Gemini/OpenAI).",
+    inputSchema: z.object({
+      path: z.string().describe("Caminho do arquivo (ex: src/utils.js, tests/login.cy.js, cypress/support/commands.js)."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      filePath: z.string().optional(),
+      methods: z.array(z.object({
+        name: z.string(),
+        correto: z.boolean().optional(),
+        melhorForma: z.string().optional(),
+        falsoPositivo: z.boolean().optional(),
+        falsoPositivoRazao: z.string().optional(),
+        coerente: z.boolean().optional(),
+        itensFaltando: z.array(z.string()).optional(),
+        parametrosFaltando: z.array(z.string()).optional(),
+        importsFaltando: z.array(z.string()).optional(),
+        sugestao: z.string().optional(),
+      })).optional(),
+      importsFaltandoGlobal: z.array(z.string()).optional(),
+      resumo: z.string().optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async ({ path: filePath }) => {
+    const normalized = filePath.replace(/^\//, "").replace(/\\/g, "/");
+    const fullPath = path.join(PROJECT_ROOT, normalized);
+
+    if (!fullPath.startsWith(PROJECT_ROOT)) {
+      return {
+        content: [{ type: "text", text: "Caminho fora do projeto." }],
+        structuredContent: { ok: false, error: "Path outside project" },
+      };
+    }
+    if (!fs.existsSync(fullPath)) {
+      return {
+        content: [{ type: "text", text: `Arquivo não encontrado: ${normalized}` }],
+        structuredContent: { ok: false, error: "File not found" },
+      };
+    }
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) {
+      return {
+        content: [{ type: "text", text: "É um diretório. Informe um arquivo." }],
+        structuredContent: { ok: false, error: "Is directory" },
+      };
+    }
+
+    let fileContent = "";
+    try {
+      fileContent = fs.readFileSync(fullPath, "utf8");
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Erro ao ler: ${err.message}` }],
+        structuredContent: { ok: false, error: err.message },
+      };
+    }
+
+    const GROQ_KEY = process.env.GROQ_API_KEY;
+    const GEMINI_KEY = process.env.GEMINI_API_KEY;
+    const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
+
+    if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+      return {
+        content: [{
+          type: "text",
+          text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env para usar análise com LLM.",
+        }],
+        structuredContent: { ok: false, error: "No API key configured" },
+      };
+    }
+
+    const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
+    const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
+    const baseUrl = provider === "groq"
+      ? "https://api.groq.com/openai/v1"
+      : provider === "gemini"
+        ? "https://generativelanguage.googleapis.com/v1beta"
+        : "https://api.openai.com/v1";
+    const model = provider === "groq"
+      ? "llama-3.3-70b-versatile"
+      : provider === "gemini"
+        ? "gemini-1.5-flash"
+        : "gpt-4o-mini";
+
+    const ext = path.extname(fullPath).toLowerCase();
+    const lang = [".ts", ".tsx"].includes(ext) ? "TypeScript" : [".js", ".jsx"].includes(ext) ? "JavaScript" : [".py"].includes(ext) ? "Python" : "código";
+
+    const systemPrompt = `Você é um revisor de código experiente em QA e testes. Analise o arquivo e cada método/função, respondendo em JSON válido (sem markdown) com a estrutura:
+
+{
+  "methods": [
+    {
+      "name": "nomeDoMetodo",
+      "correto": true | false,
+      "melhorForma": "explicação curta se há forma melhor de escrever",
+      "falsoPositivo": true | false,
+      "falsoPositivoRazao": "se falso positivo, por quê (ex: asserção muito permissiva)",
+      "coerente": true | false,
+      "coerenteDetalhe": "se incoerente, o que está inconsistente",
+      "itensFaltando": ["item1", "item2"],
+      "parametrosFaltando": ["param1"],
+      "importsFaltando": ["moduloX"],
+      "sugestao": "código ou texto de sugestão de melhoria"
+    }
+  ],
+  "importsFaltandoGlobal": ["imports faltando no topo do arquivo"],
+  "resumo": "resumo geral em 2-3 linhas"
+}
+
+Para CADA método/função no arquivo, verifique:
+1. correto: a lógica está correta?
+2. melhorForma: há forma mais legível, performática ou idiomática de escrever?
+3. falsoPositivo: o método pode passar quando não deveria (asserção fraca, mock incorreto)?
+4. coerente: o método é coerente com o restante do código, naming, padrões?
+5. itensFaltando: falta try/catch, validação, cleanup, etc?
+6. parametrosFaltando: parâmetros que deveriam existir?
+7. importsFaltando: imports que o método usa mas não estão declarados?
+
+Responda APENAS com o JSON válido. Linguagem: ${lang}.`;
+
+    const userPrompt = `Arquivo: ${normalized}
+
+\`\`\`${lang}
+${fileContent.slice(0, 18000)}
+\`\`\`
+
+Analise cada método/função e retorne o JSON conforme especificado.`;
+
+    try {
+      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+
+      let data = {};
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = {
+          methods: [],
+          importsFaltandoGlobal: [],
+          resumo: raw.slice(0, 1000) || "Não foi possível parsear a resposta do LLM.",
+        };
+      }
+
+      const lines = [
+        `# Análise de métodos: ${normalized}`,
+        "",
+        data.resumo && `## Resumo\n${data.resumo}`,
+        data.importsFaltandoGlobal?.length > 0
+          ? `\n## Imports faltando (global)\n${data.importsFaltandoGlobal.map((i) => `- ${i}`).join("\n")}`
+          : "",
+        "\n## Métodos analisados\n",
+      ];
+
+      for (const m of data.methods || []) {
+        lines.push(`### ${m.name}`);
+        lines.push("");
+        if (m.correto !== undefined) lines.push(`- **Correto:** ${m.correto ? "✅ Sim" : "❌ Não"}`);
+        if (m.melhorForma) lines.push(`- **Melhor forma:** ${m.melhorForma}`);
+        if (m.falsoPositivo) lines.push(`- **Falso positivo:** ⚠️ Sim - ${m.falsoPositivoRazao || "verificar"}`);
+        if (m.coerente !== undefined) lines.push(`- **Coerente:** ${m.coerente ? "✅ Sim" : "❌ Não"}`);
+        if (m.itensFaltando?.length) lines.push(`- **Itens faltando:** ${m.itensFaltando.join(", ")}`);
+        if (m.parametrosFaltando?.length) lines.push(`- **Parâmetros faltando:** ${m.parametrosFaltando.join(", ")}`);
+        if (m.importsFaltando?.length) lines.push(`- **Imports faltando:** ${m.importsFaltando.join(", ")}`);
+        if (m.sugestao) lines.push(`\n**Sugestão:**\n\`\`\`\n${m.sugestao}\n\`\`\``);
+        lines.push("");
+      }
+
+      const formattedText = lines.filter(Boolean).join("\n");
+
+      return {
+        content: [{ type: "text", text: formattedText }],
+        structuredContent: {
+          ok: true,
+          filePath: normalized,
+          methods: data.methods || [],
+          importsFaltandoGlobal: data.importsFaltandoGlobal || [],
+          resumo: data.resumo,
+        },
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Erro ao analisar: ${err.message}` }],
+        structuredContent: { ok: false, error: err.message },
+      };
+    }
+  }
+);
+
 
 server.registerTool(
   "create_bug_report",

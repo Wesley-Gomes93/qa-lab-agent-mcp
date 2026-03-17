@@ -310,6 +310,15 @@ function matchesFramework(inferred, requested) {
   if (inferred === requested) return true;
   return aliases[inferred]?.includes(requested);
 }
+function getFrameworkCwd(structure, preferredDirs) {
+  for (const dir of preferredDirs) {
+    if (structure.testDirs.includes(dir)) {
+      return path.join(PROJECT_ROOT, dir);
+    }
+  }
+  const fallback = structure.testDirs[0];
+  return fallback ? path.join(PROJECT_ROOT, fallback) : PROJECT_ROOT;
+}
 var METRICS_FILE = path.join(PROJECT_ROOT, ".qa-lab-metrics.json");
 var FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
 function parseTestRunResult(runOutput, exitCode) {
@@ -1311,6 +1320,181 @@ ${data.codigoCorrigido}
     } catch (err) {
       return {
         content: [{ type: "text", text: `Erro ao chamar LLM: ${err.message}` }],
+        structuredContent: { ok: false, error: err.message }
+      };
+    }
+  }
+);
+server.registerTool(
+  "analyze_file_methods",
+  {
+    title: "Analisar m\xE9todos de um arquivo",
+    description: "L\xEA um arquivo, faz varredura em todos os m\xE9todos/fun\xE7\xF5es e retorna an\xE1lise detalhada: m\xE9todo correto?, melhor forma de escrever?, falso positivo?, coer\xEAncia?, itens faltando?, par\xE2metros faltando?, imports faltando?. Requer API key (Groq/Gemini/OpenAI).",
+    inputSchema: z.object({
+      path: z.string().describe("Caminho do arquivo (ex: src/utils.js, tests/login.cy.js, cypress/support/commands.js).")
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      filePath: z.string().optional(),
+      methods: z.array(z.object({
+        name: z.string(),
+        correto: z.boolean().optional(),
+        melhorForma: z.string().optional(),
+        falsoPositivo: z.boolean().optional(),
+        falsoPositivoRazao: z.string().optional(),
+        coerente: z.boolean().optional(),
+        itensFaltando: z.array(z.string()).optional(),
+        parametrosFaltando: z.array(z.string()).optional(),
+        importsFaltando: z.array(z.string()).optional(),
+        sugestao: z.string().optional()
+      })).optional(),
+      importsFaltandoGlobal: z.array(z.string()).optional(),
+      resumo: z.string().optional(),
+      error: z.string().optional()
+    })
+  },
+  async ({ path: filePath }) => {
+    const normalized = filePath.replace(/^\//, "").replace(/\\/g, "/");
+    const fullPath = path.join(PROJECT_ROOT, normalized);
+    if (!fullPath.startsWith(PROJECT_ROOT)) {
+      return {
+        content: [{ type: "text", text: "Caminho fora do projeto." }],
+        structuredContent: { ok: false, error: "Path outside project" }
+      };
+    }
+    if (!fs.existsSync(fullPath)) {
+      return {
+        content: [{ type: "text", text: `Arquivo n\xE3o encontrado: ${normalized}` }],
+        structuredContent: { ok: false, error: "File not found" }
+      };
+    }
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) {
+      return {
+        content: [{ type: "text", text: "\xC9 um diret\xF3rio. Informe um arquivo." }],
+        structuredContent: { ok: false, error: "Is directory" }
+      };
+    }
+    let fileContent = "";
+    try {
+      fileContent = fs.readFileSync(fullPath, "utf8");
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Erro ao ler: ${err.message}` }],
+        structuredContent: { ok: false, error: err.message }
+      };
+    }
+    const GROQ_KEY = process.env.GROQ_API_KEY;
+    const GEMINI_KEY = process.env.GEMINI_API_KEY;
+    const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
+    if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+      return {
+        content: [{
+          type: "text",
+          text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env para usar an\xE1lise com LLM."
+        }],
+        structuredContent: { ok: false, error: "No API key configured" }
+      };
+    }
+    const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
+    const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
+    const baseUrl = provider === "groq" ? "https://api.groq.com/openai/v1" : provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1";
+    const model = provider === "groq" ? "llama-3.3-70b-versatile" : provider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini";
+    const ext = path.extname(fullPath).toLowerCase();
+    const lang = [".ts", ".tsx"].includes(ext) ? "TypeScript" : [".js", ".jsx"].includes(ext) ? "JavaScript" : [".py"].includes(ext) ? "Python" : "c\xF3digo";
+    const systemPrompt = `Voc\xEA \xE9 um revisor de c\xF3digo experiente em QA e testes. Analise o arquivo e cada m\xE9todo/fun\xE7\xE3o, respondendo em JSON v\xE1lido (sem markdown) com a estrutura:
+
+{
+  "methods": [
+    {
+      "name": "nomeDoMetodo",
+      "correto": true | false,
+      "melhorForma": "explica\xE7\xE3o curta se h\xE1 forma melhor de escrever",
+      "falsoPositivo": true | false,
+      "falsoPositivoRazao": "se falso positivo, por qu\xEA (ex: asser\xE7\xE3o muito permissiva)",
+      "coerente": true | false,
+      "coerenteDetalhe": "se incoerente, o que est\xE1 inconsistente",
+      "itensFaltando": ["item1", "item2"],
+      "parametrosFaltando": ["param1"],
+      "importsFaltando": ["moduloX"],
+      "sugestao": "c\xF3digo ou texto de sugest\xE3o de melhoria"
+    }
+  ],
+  "importsFaltandoGlobal": ["imports faltando no topo do arquivo"],
+  "resumo": "resumo geral em 2-3 linhas"
+}
+
+Para CADA m\xE9todo/fun\xE7\xE3o no arquivo, verifique:
+1. correto: a l\xF3gica est\xE1 correta?
+2. melhorForma: h\xE1 forma mais leg\xEDvel, perform\xE1tica ou idiom\xE1tica de escrever?
+3. falsoPositivo: o m\xE9todo pode passar quando n\xE3o deveria (asser\xE7\xE3o fraca, mock incorreto)?
+4. coerente: o m\xE9todo \xE9 coerente com o restante do c\xF3digo, naming, padr\xF5es?
+5. itensFaltando: falta try/catch, valida\xE7\xE3o, cleanup, etc?
+6. parametrosFaltando: par\xE2metros que deveriam existir?
+7. importsFaltando: imports que o m\xE9todo usa mas n\xE3o est\xE3o declarados?
+
+Responda APENAS com o JSON v\xE1lido. Linguagem: ${lang}.`;
+    const userPrompt = `Arquivo: ${normalized}
+
+\`\`\`${lang}
+${fileContent.slice(0, 18e3)}
+\`\`\`
+
+Analise cada m\xE9todo/fun\xE7\xE3o e retorne o JSON conforme especificado.`;
+    try {
+      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+      let data = {};
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = {
+          methods: [],
+          importsFaltandoGlobal: [],
+          resumo: raw.slice(0, 1e3) || "N\xE3o foi poss\xEDvel parsear a resposta do LLM."
+        };
+      }
+      const lines = [
+        `# An\xE1lise de m\xE9todos: ${normalized}`,
+        "",
+        data.resumo && `## Resumo
+${data.resumo}`,
+        data.importsFaltandoGlobal?.length > 0 ? `
+## Imports faltando (global)
+${data.importsFaltandoGlobal.map((i) => `- ${i}`).join("\n")}` : "",
+        "\n## M\xE9todos analisados\n"
+      ];
+      for (const m of data.methods || []) {
+        lines.push(`### ${m.name}`);
+        lines.push("");
+        if (m.correto !== void 0) lines.push(`- **Correto:** ${m.correto ? "\u2705 Sim" : "\u274C N\xE3o"}`);
+        if (m.melhorForma) lines.push(`- **Melhor forma:** ${m.melhorForma}`);
+        if (m.falsoPositivo) lines.push(`- **Falso positivo:** \u26A0\uFE0F Sim - ${m.falsoPositivoRazao || "verificar"}`);
+        if (m.coerente !== void 0) lines.push(`- **Coerente:** ${m.coerente ? "\u2705 Sim" : "\u274C N\xE3o"}`);
+        if (m.itensFaltando?.length) lines.push(`- **Itens faltando:** ${m.itensFaltando.join(", ")}`);
+        if (m.parametrosFaltando?.length) lines.push(`- **Par\xE2metros faltando:** ${m.parametrosFaltando.join(", ")}`);
+        if (m.importsFaltando?.length) lines.push(`- **Imports faltando:** ${m.importsFaltando.join(", ")}`);
+        if (m.sugestao) lines.push(`
+**Sugest\xE3o:**
+\`\`\`
+${m.sugestao}
+\`\`\``);
+        lines.push("");
+      }
+      const formattedText = lines.filter(Boolean).join("\n");
+      return {
+        content: [{ type: "text", text: formattedText }],
+        structuredContent: {
+          ok: true,
+          filePath: normalized,
+          methods: data.methods || [],
+          importsFaltandoGlobal: data.importsFaltandoGlobal || [],
+          resumo: data.resumo
+        }
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Erro ao analisar: ${err.message}` }],
         structuredContent: { ok: false, error: err.message }
       };
     }

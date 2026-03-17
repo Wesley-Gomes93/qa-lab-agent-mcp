@@ -1,5 +1,8 @@
 node_modules
 .env
+test-results/
+coverage/
+test/fixtures/**/node_modules
 *.log
 .qa-lab-last-failure.log
 .qa-lab-metrics.json
