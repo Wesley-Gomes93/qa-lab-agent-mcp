@@ -254,15 +254,54 @@ Referência completa do CLI: `mcp-lab-agent --help`
 
 ## Configuração
 
-### Variáveis de ambiente (opcional)
+### Opção 1: APIs Externas (Groq, Gemini, OpenAI)
+
+```bash
+# .env
+GROQ_API_KEY=sua-key  # Gratuito: https://console.groq.com/keys
+```
+
+### Opção 2: Ollama (Local, Sem Internet) ⭐ Recomendado para empresas
+
+```bash
+# 1. Instale o Ollama
+brew install ollama  # macOS
+# ou: curl -fsSL https://ollama.com/install.sh | sh  # Linux
+
+# 2. Baixe o modelo
+ollama pull llama3.1:8b
+
+# 3. Inicie
+ollama serve
+
+# 4. Pronto! O agente detecta automaticamente
+npx mcp-lab-agent auto "login flow"
+```
+
+**100% offline. Sem APIs externas. Ideal para ambientes corporativos.**
+
+### Opção 3: LLM Interno da Empresa
+
+```bash
+# .env
+QA_LAB_LLM_BASE_URL=https://llm-interno.empresa.com/v1
+QA_LAB_LLM_API_KEY=sua-key-interna
+```
+
+**Guia completo:** [CONFIGURACAO_CORPORATIVA.md](CONFIGURACAO_CORPORATIVA.md)
+
+### Variáveis de ambiente (todas opcionais)
 
 | Variável | Uso |
 |----------|-----|
 | `GROQ_API_KEY` | Groq (gratuito, rápido) |
 | `GEMINI_API_KEY` | Google Gemini |
 | `OPENAI_API_KEY` | OpenAI |
-| `QA_LAB_LLM_SIMPLE` | Modelo para tarefas simples (ex: gemini-1.5-flash) |
-| `QA_LAB_LLM_COMPLEX` | Modelo para tarefas complexas (ex: gpt-4o) |
+| `OLLAMA_BASE_URL` | Ollama customizado (default: http://localhost:11434) |
+| `QA_LAB_LLM_BASE_URL` | Endpoint LLM customizado (empresa) |
+| `QA_LAB_LLM_API_KEY` | API key para LLM customizado |
+| `QA_LAB_LLM_SIMPLE` | Modelo para tarefas simples |
+| `QA_LAB_LLM_COMPLEX` | Modelo para tarefas complexas |
 
 ### Modo browser (opcional)
 

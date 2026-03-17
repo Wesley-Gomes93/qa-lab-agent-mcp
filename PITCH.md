@@ -157,9 +157,22 @@ Detecta padrões de testes intermitentes:
 
 - **Node.js 18+** (não precisa Python, uv, etc.)
 - **MCP (Model Context Protocol)** — padrão aberto
-- **LLMs:** Groq (gratuito), Gemini, OpenAI
+- **LLMs:** Groq (gratuito), Gemini, OpenAI, **Ollama (local)** ⭐
 - **Playwright** (opcional) para browser mode
 - **15+ frameworks** suportados
+
+### Para Ambientes Corporativos
+
+**APIs bloqueadas?** Use Ollama (100% offline):
+
+```bash
+brew install ollama
+ollama pull llama3.1:8b
+ollama serve
+npx mcp-lab-agent auto "login flow"  # Funciona sem internet!
+```
+
+**Compliance garantido:** Dados não saem do ambiente corporativo.
 
 ---
 

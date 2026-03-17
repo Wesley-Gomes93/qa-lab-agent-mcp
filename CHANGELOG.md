@@ -38,6 +38,8 @@
 - **Help atualizado:** Documentação inline completa
 - **Escalabilidade:** Seção no README sobre uso em CI/CD, multi-projeto e métricas exportáveis
 - **Diagrama arquitetural:** Atualizado para incluir o loop autônomo e sistema de learning
+- **Suporte a Ollama:** LLMs locais (100% offline) para ambientes corporativos
+- **LLM customizado:** Suporte a endpoints internos via `QA_LAB_LLM_BASE_URL`
 
 ### 📚 Documentação
 

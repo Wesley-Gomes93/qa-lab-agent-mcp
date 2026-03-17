@@ -113,7 +113,7 @@ Se falhar após 5 tentativas:
 ## Objeção 5: "Qual o custo de LLM?"
 
 ### Resposta curta
-**Groq é gratuito. Model routing economiza 70% em outros LLMs.**
+**Groq é gratuito. Ollama é local (gratuito). Model routing economiza 70% em outros LLMs.**
 
 ### Resposta detalhada
 
@@ -131,10 +131,16 @@ Se falhar após 5 tentativas:
 - Analisar falha: $0
 - **Média por teste:** $0
 
+**Com Ollama (local, gratuito):**
+- Gerar teste: $0
+- Analisar falha: $0
+- **Média por teste:** $0
+- **Bonus:** 100% offline, compliance garantido
+
 **Economia vs. tempo de QA:**
 - 1 teste manual: 15-30 min × salário/hora
-- 1 teste com agente: 2-5 min × $0.005
-- **ROI:** 10-25 min economizados >> $0.005
+- 1 teste com agente: 2-5 min × $0
+- **ROI:** 10-25 min economizados (custo zero com Ollama)
 
 ---
 
