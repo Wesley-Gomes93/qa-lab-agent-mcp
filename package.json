@@ -1,7 +1,7 @@
 {
   "name": "mcp-lab-agent",
-  "version": "1.1.2",
-  "description": "MCP server + AI agents for QA automation in any project (Cypress, Playwright, Jest)",
+  "version": "2.0.0",
+  "description": "Autonomous QA agent that learns from its own errors - auto-generates, runs, fixes and improves tests",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -31,7 +31,11 @@
     "ai-agent",
     "test-automation",
     "self-healing",
-    "qa-metrics"
+    "qa-metrics",
+    "autonomous-agent",
+    "self-learning",
+    "auto-correction",
+    "flaky-detection"
   ],
   "repository": {
     "type": "git",

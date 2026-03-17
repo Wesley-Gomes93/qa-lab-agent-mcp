@@ -4,33 +4,57 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Assistente de QA com IA que roda direto no seu IDE.** Detecta frameworks automaticamente, gera testes, analisa falhas e avalia apps em browser — sem configuração complexa.
+**Agente autônomo de QA que aprende com os próprios erros.**
+
+Não é só um assistente: é um agente que **lê seu projeto, gera testes, executa, corrige falhas automaticamente e aprende** para cada vez acertar mais na primeira tentativa.
 
 ---
 
-## Por que mcp-lab-agent?
+## O diferencial
 
-| web-eval-agent | agentic-qe | **mcp-lab-agent** |
-|----------------|------------|-------------------|
-| Browser + network ✅ | 60 agentes, routing | **Tudo isso + zero config** |
-| Python, uv, API key | CLI complexo, muitas deps | **npm install, 2 minutos** |
-| Projeto descontinuado | Foco em Claude Code | **Cursor, Cline, Windsurf, qualquer MCP** |
-| — | — | **Detecção automática de 15+ frameworks** |
-| — | — | **Flaky detection + model routing** |
-| — | — | **Memória de projeto + agentes especializados** |
+| Outras ferramentas | **mcp-lab-agent** |
+|-------------------|-------------------|
+| Geram testes | **Gera, roda, corrige e aprende** |
+| Você corrige erros | **Auto-correção com retry inteligente** |
+| Sem memória | **Aprende com erros passados** |
+| Configuração complexa | **Zero config: detecta 15+ frameworks** |
+| Sem métricas | **Taxa de sucesso, correções, aprendizados** |
 
-**Em 2 minutos** você tem detecção, execução, geração com IA, análise de falhas, modo browser e métricas.
+**Modo autônomo:**
+
+```bash
+npx mcp-lab-agent auto "login flow" --max-retries 5
+```
+
+O agente:
+1. Detecta seu projeto (Cypress, Playwright, Jest, etc.)
+2. Gera o teste com base em aprendizados anteriores
+3. Executa o teste
+4. Se falhar: analisa, corrige e tenta de novo
+5. Aprende com cada correção para melhorar nas próximas
+
+**Resultado:** Testes que passam na primeira tentativa aumentam com o tempo.
 
 ---
 
 ## Quick Start
 
+### Modo autônomo (CLI)
+
 ```bash
-# Teste o CLI antes de configurar (opcional)
+# Gera, roda, corrige e aprende automaticamente
+npx mcp-lab-agent auto "login flow" --max-retries 5
+
+# Ver métricas de aprendizado
+npx mcp-lab-agent stats
+
+# Detectar estrutura do projeto
 npx mcp-lab-agent detect
 ```
 
-**1. Configure o MCP no Cursor** (`~/.cursor/mcp.json`):
+### Integração com IDE (Cursor/Cline/Windsurf)
+
+**1. Configure o MCP** (`~/.cursor/mcp.json`):
 
 ```json
 {
@@ -44,26 +68,32 @@ npx mcp-lab-agent detect
 }
 ```
 
-**2. Reinicie o Cursor e use no chat:**
+**2. Use no chat:**
 
 ```
 "Detecte a estrutura do meu projeto"
+"Modo autônomo: gere teste para login"
 "Rode os testes"
-"Gere um teste E2E para login"
 "Por que o teste falhou?"
 "Avalie http://localhost:3000 no browser"
+"Mostre as estatísticas de aprendizado"
 ```
 
 ---
 
 ## Architecture
 
-O diagrama abaixo mostra como o mcp-lab-agent conecta IDE, ferramentas especializadas e LLMs em um fluxo único:
+O diagrama abaixo mostra como o agente autônomo funciona:
 
 ```mermaid
 flowchart TB
     subgraph IDE["🖥️ IDE (Cursor, Cline, Windsurf)"]
         Chat[Chat do usuário]
+    end
+
+    subgraph CLI["💻 CLI (Terminal)"]
+        Auto["mcp-lab-agent auto"]
+        Stats["mcp-lab-agent stats"]
     end
 
     subgraph MCP["MCP Protocol (stdio)"]
@@ -72,6 +102,7 @@ flowchart TB
 
     subgraph Agent["mcp-lab-agent"]
         Router[qa_route_task]
+        AutoTool["qa_auto<br/>(Loop autônomo)"]
         
         subgraph Agents["Agentes Especializados"]
             D[detection<br/>detect_project, read_project, list_test_files]
@@ -80,12 +111,14 @@ flowchart TB
             A[analysis<br/>analyze_failures, por_que_falhou, suggest_selector_fix]
             B[browser<br/>web_eval_browser]
             R[reporting<br/>create_bug_report, get_business_metrics]
+            L[learning<br/>qa_learning_stats]
         end
 
-        subgraph Brain["🧠 Núcleo"]
+        subgraph Brain["🧠 Núcleo Inteligente"]
             MR[Model Router<br/>simples → Groq/Flash | complexo → 70B/Pro]
             PM[Project Memory<br/>.qa-lab-memory.json]
             FD[Flaky Detection<br/>timing, selector, network]
+            LS[Learning System<br/>salva correções bem-sucedidas]
         end
     end
 
@@ -97,7 +130,16 @@ flowchart TB
 
     Chat --> Transport
     Transport --> Router
-    Router --> D & E & G & A & B & R
+    Router --> AutoTool
+    Router --> D & E & G & A & B & R & L
+
+    Auto --> AutoTool
+    Stats --> L
+
+    AutoTool --> G
+    AutoTool --> E
+    AutoTool --> A
+    AutoTool --> LS
 
     D & E & G & A & R --> Proj
     B --> PW
@@ -105,11 +147,21 @@ flowchart TB
 
     G & A --> MR
     MR --> LLM
-    G & A --> PM
-    A --> FD
+    G & A & AutoTool --> PM
+    A & AutoTool --> FD
+    AutoTool --> LS
+    LS --> PM
 ```
 
-**Fluxo resumido:**
+**Fluxo autônomo (qa_auto):**
+1. **Detecta** projeto (frameworks, pastas, fluxos)
+2. **Gera** teste usando LLM + memória de aprendizados
+3. **Executa** o teste
+4. **Se falhar:** analisa (flaky detection), corrige e tenta de novo
+5. **Aprende:** salva correções bem-sucedidas na memória
+6. **Repete** até passar ou atingir max_retries
+
+**Fluxo resumido (IDE):**
 1. **Usuário** fala no chat do IDE
 2. **MCP** entrega a mensagem ao `mcp-lab-agent`
 3. **qa_route_task** sugere o agente certo (detection, execution, generation, etc.)
@@ -124,6 +176,8 @@ flowchart TB
 
 | Categoria | O que faz |
 |-----------|-----------|
+| **🤖 Autônomo** | `qa_auto` — loop completo: gera, roda, corrige, aprende (até passar ou max_retries) |
+| **📊 Learning** | Salva correções bem-sucedidas, taxa de sucesso na 1ª tentativa, métricas de aprendizado |
 | **Detecção** | Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot, pytest, Behave, Appium, Detox |
 | **Execução** | run_tests, watch, coverage (Jest/Vitest) |
 | **Geração** | Testes via LLM (Groq, Gemini, OpenAI), templates |
@@ -145,20 +199,56 @@ mcp-lab-agent [comando]
 | Comando | Descrição |
 |---------|-----------|
 | *(sem args)* | Inicia o servidor MCP (modo padrão para o IDE) |
-| `detect` | Detecta frameworks e estrutura do projeto (JSON) |
+| `auto <descrição> [--max-retries N]` | **[NOVO]** Modo autônomo: gera, roda, corrige e aprende (default: 3 tentativas) |
+| `stats` | **[NOVO]** Mostra estatísticas de aprendizado (taxa de sucesso, correções, etc.) |
+| `detect [--json]` | Detecta frameworks e estrutura do projeto |
 | `route <tarefa>` | Sugere qual ferramenta usar |
 | `list` | Lista agentes e ferramentas disponíveis |
 | `--help` | Mostra ajuda |
 
 **Exemplos:**
 ```bash
+mcp-lab-agent auto "login flow" --max-retries 5
+mcp-lab-agent stats
 mcp-lab-agent detect
 mcp-lab-agent route "rodar os testes"
-mcp-lab-agent route "gerar teste de login"
 mcp-lab-agent list
 ```
 
 Referência completa do CLI: `mcp-lab-agent --help`
+
+---
+
+## Escalabilidade
+
+### Como o mcp-lab-agent escala para empresas
+
+**1. Multi-projeto:**
+- Cada projeto tem sua própria memória (`.qa-lab-memory.json`)
+- Aprendizados são isolados por contexto
+- Suporte a monorepos (detecta múltiplos frameworks)
+
+**2. CI/CD:**
+```yaml
+# .github/workflows/qa.yml
+- run: npx mcp-lab-agent auto "smoke tests" --max-retries 2
+- run: npx mcp-lab-agent stats
+```
+
+**3. Métricas exportáveis:**
+- `.qa-lab-memory.json` pode ser lido por dashboards
+- `stats` retorna JSON estruturado
+- Integração com Grafana/DataDog via script
+
+**4. Aprendizado compartilhado (roadmap):**
+- Exportar/importar memórias entre projetos
+- Central de aprendizados da empresa
+- Padrões globais + overrides locais
+
+**5. Customização:**
+- `qa-lab-flows.json` para fluxos de negócio específicos
+- Variáveis de ambiente para modelos customizados
+- Extensível via MCP tools
 
 ---
 
@@ -181,6 +271,18 @@ Para `web_eval_browser`:
 ```bash
 npm install playwright
 ```
+
+---
+
+## Documentação
+
+- **[PITCH.md](PITCH.md)** — Apresentação executiva (use para apresentar ao time)
+- **[EXEMPLO_EVOLUCAO.md](EXEMPLO_EVOLUCAO.md)** — Como a taxa de sucesso melhora com o tempo
+- **[ARQUITETURA_LEARNING.md](ARQUITETURA_LEARNING.md)** — Detalhes técnicos do sistema de learning
+- **[CHANGELOG.md](CHANGELOG.md)** — Histórico de versões
+- **[MIGRATION_V2.md](MIGRATION_V2.md)** — Guia de migração da v1.x
+
+Documentação completa (local): `docs/`
 
 ---
 

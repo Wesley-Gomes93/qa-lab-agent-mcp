@@ -86,9 +86,33 @@ function saveProjectMemory(updates) {
     if (updates.conventions) data.conventions = { ...data.conventions, ...updates.conventions };
     if (updates.selectors) data.selectors = [...new Set([...(data.selectors || []), ...updates.selectors])].slice(-100);
     if (updates.lastRun) data.lastRun = updates.lastRun;
+    if (updates.learnings) {
+      data.learnings = data.learnings || [];
+      data.learnings.push(...updates.learnings);
+      if (data.learnings.length > 200) data.learnings = data.learnings.slice(-150);
+    }
     data.updatedAt = new Date().toISOString();
     fs.writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2), "utf8");
   } catch {}
+}
+
+function getMemoryStats() {
+  const memory = loadProjectMemory();
+  const learnings = memory.learnings || [];
+  const successfulFixes = learnings.filter((l) => l.success);
+  const selectorFixes = learnings.filter((l) => l.type === "selector_fix");
+  const timingFixes = learnings.filter((l) => l.type === "timing_fix");
+  const totalTests = learnings.filter((l) => l.type === "test_generated").length;
+  const firstAttemptSuccess = learnings.filter((l) => l.type === "test_generated" && l.passedFirstTime).length;
+
+  return {
+    totalLearnings: learnings.length,
+    successfulFixes: successfulFixes.length,
+    selectorFixes: selectorFixes.length,
+    timingFixes: timingFixes.length,
+    testsGenerated: totalTests,
+    firstAttemptSuccessRate: totalTests > 0 ? Math.round((firstAttemptSuccess / totalTests) * 100) : 0,
+  };
 }
 
 // ============================================================================
@@ -705,12 +729,14 @@ server.registerTool(
 // ============================================================================
 
 const QA_AGENTS = {
+  autonomous: { tools: ["qa_auto"], desc: "Modo autônomo: gera, roda, corrige e aprende (loop completo)" },
   detection: { tools: ["detect_project", "read_project", "list_test_files"], desc: "Detecção de estrutura, frameworks e arquivos" },
   execution: { tools: ["run_tests", "watch_tests", "get_test_coverage"], desc: "Execução de testes e cobertura" },
   generation: { tools: ["generate_tests", "write_test", "create_test_template"], desc: "Geração de testes com LLM" },
   analysis: { tools: ["analyze_failures", "por_que_falhou", "suggest_fix", "suggest_selector_fix"], desc: "Análise de falhas e sugestões" },
   browser: { tools: ["web_eval_browser"], desc: "Avaliação em browser real (screenshots, network, console)" },
   reporting: { tools: ["create_bug_report", "get_business_metrics"], desc: "Relatórios e métricas" },
+  learning: { tools: ["qa_learning_stats"], desc: "Estatísticas de aprendizado e evolução" },
   maintenance: { tools: ["run_linter", "install_dependencies", "analyze_file_methods"], desc: "Manutenção e análise de código" },
 };
 
@@ -731,6 +757,12 @@ server.registerTool(
   },
   async ({ task }) => {
     const t = task.toLowerCase();
+    if (/autônomo|auto|completo|loop|aprende|corrige automaticamente/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: autonomous → qa_auto (loop completo: gera, roda, corrige, aprende)" }], structuredContent: { ok: true, suggestedAgent: "autonomous", suggestedTools: QA_AGENTS.autonomous.tools, description: QA_AGENTS.autonomous.desc } };
+    }
+    if (/estatística|métrica de aprendizado|taxa de sucesso|learning|stats/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: learning → qa_learning_stats" }], structuredContent: { ok: true, suggestedAgent: "learning", suggestedTools: QA_AGENTS.learning.tools, description: QA_AGENTS.learning.desc } };
+    }
     if (/rodar|executar|run|test|coverage|watch/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: execution → run_tests, get_test_coverage" }], structuredContent: { ok: true, suggestedAgent: "execution", suggestedTools: QA_AGENTS.execution.tools, description: QA_AGENTS.execution.desc } };
     }
@@ -2315,6 +2347,41 @@ server.registerTool(
 );
 
 server.registerTool(
+  "qa_learning_stats",
+  {
+    title: "Estatísticas de aprendizado",
+    description: "[MÉTRICAS] Retorna métricas de aprendizado do agente: quantos testes gerados, taxa de sucesso na primeira tentativa, correções aplicadas, etc.",
+    inputSchema: z.object({}),
+    outputSchema: z.object({
+      totalLearnings: z.number(),
+      successfulFixes: z.number(),
+      selectorFixes: z.number(),
+      timingFixes: z.number(),
+      testsGenerated: z.number(),
+      firstAttemptSuccessRate: z.number(),
+    }),
+  },
+  async () => {
+    const stats = getMemoryStats();
+    const summary = `📊 **Estatísticas de Aprendizado**
+
+- Total de aprendizados: ${stats.totalLearnings}
+- Correções bem-sucedidas: ${stats.successfulFixes}
+- Correções de seletores: ${stats.selectorFixes}
+- Correções de timing: ${stats.timingFixes}
+- Testes gerados: ${stats.testsGenerated}
+- Taxa de sucesso na 1ª tentativa: ${stats.firstAttemptSuccessRate}%
+
+${stats.totalLearnings === 0 ? "⚠️ Ainda não há aprendizados. Use qa_auto para gerar testes e aprender com erros." : ""}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: stats,
+    };
+  }
+);
+
+server.registerTool(
   "get_test_coverage",
   {
     title: "Obter cobertura de testes",
@@ -2404,6 +2471,192 @@ server.registerTool(
 );
 
 server.registerTool(
+  "qa_auto",
+  {
+    title: "Modo autônomo: gera, roda, corrige e aprende",
+    description: "[AGENTE AUTÔNOMO] Loop completo: detecta projeto → gera teste → roda → se falhar: analisa, corrige, roda de novo → aprende com erros. Repete até passar ou atingir max_retries.",
+    inputSchema: z.object({
+      request: z.string().describe("O que testar (ex: 'login flow', 'checkout', 'API /users')."),
+      framework: z.enum([
+        "cypress", "playwright", "webdriverio", "jest", "vitest", "mocha", "appium", "robot", "pytest"
+      ]).optional().describe("Framework (detectado automaticamente se omitido)."),
+      maxRetries: z.number().optional().describe("Máximo de tentativas de correção. Default: 3."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      testFilePath: z.string().optional(),
+      attempts: z.number(),
+      finalStatus: z.enum(["passed", "failed", "max_retries"]),
+      learnings: z.array(z.object({ attempt: z.number(), action: z.string(), result: z.string() })).optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async ({ request, framework, maxRetries = 3 }) => {
+    const structure = detectProjectStructure();
+    const fw = framework || structure.testFrameworks[0];
+    if (!fw) {
+      return {
+        content: [{ type: "text", text: "Nenhum framework detectado. Configure testes primeiro." }],
+        structuredContent: { ok: false, error: "No framework", finalStatus: "failed", attempts: 0 },
+      };
+    }
+
+    const llm = resolveLLMProvider("simple");
+    if (!llm.apiKey) {
+      return {
+        content: [{ type: "text", text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env" }],
+        structuredContent: { ok: false, error: "No API key", finalStatus: "failed", attempts: 0 },
+      };
+    }
+
+    const learnings = [];
+    const memory = loadProjectMemory();
+    const contextLines = [
+      `Frameworks: ${structure.testFrameworks.join(", ")}`,
+      `Pastas: ${structure.testDirs.join(", ")}`,
+      memory.flows?.length ? `Fluxos: ${memory.flows.map((f) => f.name || f.id).join(", ")}` : "",
+    ].filter(Boolean).join("\n");
+
+    let testFilePath = null;
+    let testContent = null;
+    let attempt = 0;
+
+    learnings.push({ attempt: 0, action: "detect_project", result: `${structure.testFrameworks.length} framework(s)` });
+
+    for (attempt = 1; attempt <= maxRetries; attempt++) {
+      learnings.push({ attempt, action: "generate_tests", result: "gerando..." });
+
+      const { provider, apiKey, baseUrl, model } = llm;
+      const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
+      const systemPrompt = `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
+${memoryHints ? `\nAprendizados anteriores (use como referência):\n${memoryHints.slice(0, 1000)}` : ""}
+Retorne SOMENTE o código, sem markdown.`;
+
+      const userPrompt = `Contexto:\n${contextLines}\n\nGere teste para: ${request}\nFramework: ${fw}`;
+
+      try {
+        let specContent = "";
+        if (provider === "gemini") {
+          const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+            }),
+          });
+          const data = await res.json();
+          specContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        } else {
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+              temperature: 0.3,
+              max_tokens: 4096,
+            }),
+          });
+          const data = await res.json();
+          specContent = data.choices?.[0]?.message?.content || "";
+        }
+        specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+        testContent = specContent;
+
+        if (!testFilePath) {
+          const fileName = request.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
+          const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
+          const safeName = fileName + ext;
+          testFilePath = path.join(baseDir, safeName);
+          if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
+        }
+        fs.writeFileSync(testFilePath, testContent, "utf8");
+        learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath}` });
+
+        learnings.push({ attempt, action: "run_tests", result: "executando..." });
+        const runResult = await new Promise((resolve) => {
+          const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
+            cwd: PROJECT_ROOT,
+            stdio: ["inherit", "pipe", "pipe"],
+            shell: process.platform === "win32",
+          });
+          let stdout = "", stderr = "";
+          if (child.stdout) child.stdout.on("data", (d) => { stdout += d.toString(); });
+          if (child.stderr) child.stderr.on("data", (d) => { stderr += d.toString(); });
+          child.on("close", (code) => resolve({ code, output: [stdout, stderr].filter(Boolean).join("\n") }));
+        });
+
+        if (runResult.code === 0) {
+          learnings.push({ attempt, action: "run_tests", result: "✅ passou" });
+          saveProjectMemory({
+            learnings: [{ type: "test_generated", request, framework: fw, success: true, passedFirstTime: attempt === 1, attempts: attempt, timestamp: new Date().toISOString() }],
+          });
+          return {
+            content: [{ type: "text", text: `✅ Teste passou na tentativa ${attempt}!\n\nArquivo: ${testFilePath}\n\nAprendizados salvos.` }],
+            structuredContent: { ok: true, testFilePath, attempts: attempt, finalStatus: "passed", learnings },
+          };
+        }
+
+        learnings.push({ attempt, action: "run_tests", result: `❌ falhou (exit ${runResult.code})` });
+
+        if (attempt >= maxRetries) {
+          learnings.push({ attempt, action: "max_retries", result: "limite atingido" });
+          saveProjectMemory({
+            learnings: [{ type: "test_generated", request, framework: fw, success: false, attempts: attempt, timestamp: new Date().toISOString() }],
+          });
+          return {
+            content: [{ type: "text", text: `❌ Teste falhou após ${attempt} tentativa(s).\n\nÚltimo erro:\n${runResult.output.slice(0, 500)}` }],
+            structuredContent: { ok: false, testFilePath, attempts: attempt, finalStatus: "max_retries", learnings },
+          };
+        }
+
+        learnings.push({ attempt, action: "analyze_failures", result: "analisando..." });
+        const flakyAnalysis = detectFlakyPatterns(runResult.output);
+        const llmComplex = resolveLLMProvider("complex");
+        const explainResult = await generateFailureExplanation(runResult.output, testFilePath);
+
+        if (!explainResult.ok || !explainResult.structuredContent?.sugestaoCorrecao) {
+          learnings.push({ attempt, action: "analyze_failures", result: "sem sugestão de correção" });
+          continue;
+        }
+
+        learnings.push({ attempt, action: "apply_fix", result: "aplicando correção..." });
+        const fixedCode = explainResult.structuredContent.sugestaoCorrecao;
+        testContent = fixedCode;
+        fs.writeFileSync(testFilePath, testContent, "utf8");
+        learnings.push({ attempt, action: "apply_fix", result: "correção aplicada" });
+
+        if (flakyAnalysis.isLikelyFlaky) {
+          saveProjectMemory({
+            learnings: [{
+              type: flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix",
+              request,
+              framework: fw,
+              fix: fixedCode.slice(0, 500),
+              success: false,
+              timestamp: new Date().toISOString(),
+            }],
+          });
+        }
+      } catch (err) {
+        learnings.push({ attempt, action: "error", result: err.message });
+        return {
+          content: [{ type: "text", text: `Erro na tentativa ${attempt}: ${err.message}` }],
+          structuredContent: { ok: false, error: err.message, attempts: attempt, finalStatus: "failed", learnings },
+        };
+      }
+    }
+
+    return {
+      content: [{ type: "text", text: `❌ Falhou após ${maxRetries} tentativa(s).` }],
+      structuredContent: { ok: false, testFilePath, attempts: maxRetries, finalStatus: "max_retries", learnings },
+    };
+  }
+);
+
+server.registerTool(
   "create_test_template",
   {
     title: "Criar template de teste",
@@ -2457,16 +2710,23 @@ async function main() {
 
   if (cmd === "--help" || cmd === "-h") {
     console.log(`
-mcp-lab-agent - MCP server para QA automation
+mcp-lab-agent - Agente autônomo de QA que aprende com os próprios erros
 
 USO:
   mcp-lab-agent [comando]   # Sem comando: inicia servidor MCP
   mcp-lab-agent --help     # Mostra esta ajuda
 
 COMANDOS CLI:
-  detect [--json]          Detecta frameworks e estrutura. Padrão: resumo. --json: JSON completo para scripts.
-  route <tarefa>           Sugere qual ferramenta usar (ex: route "rodar testes")
-  list                     Lista ferramentas MCP disponíveis
+  detect [--json]                       Detecta frameworks e estrutura. Padrão: resumo. --json: JSON completo para scripts.
+  route <tarefa>                        Sugere qual ferramenta usar (ex: route "rodar testes")
+  list                                  Lista ferramentas MCP disponíveis
+  auto <descrição> [--max-retries N]    [NOVO] Modo autônomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
+  stats                                 [NOVO] Mostra estatísticas de aprendizado (taxa de sucesso, correções, etc.)
+
+EXEMPLOS:
+  mcp-lab-agent auto "login flow" --max-retries 5
+  mcp-lab-agent stats
+  mcp-lab-agent detect --json
 
 INTEGRAÇÃO MCP (Cursor/Cline/Windsurf):
   Adicione ao ~/.cursor/mcp.json:
@@ -2517,7 +2777,9 @@ INTEGRAÇÃO MCP (Cursor/Cline/Windsurf):
     const task = process.argv.slice(3).join(" ");
     const t = task.toLowerCase();
     let agent = "detection";
-    if (/rodar|executar|run|test|coverage|watch/i.test(t)) agent = "execution";
+    if (/autônomo|auto|completo|loop|aprende|corrige automaticamente/i.test(t)) agent = "autonomous";
+    else if (/estatística|métrica de aprendizado|taxa de sucesso|learning|stats/i.test(t)) agent = "learning";
+    else if (/rodar|executar|run|test|coverage|watch/i.test(t)) agent = "execution";
     else if (/gerar|criar|escrever|generate|write|template/i.test(t)) agent = "generation";
     else if (/analisar|por que|falhou|sugerir|fix|selector/i.test(t)) agent = "analysis";
     else if (/browser|navegador|screenshot|network|console/i.test(t)) agent = "browser";
@@ -2525,6 +2787,182 @@ INTEGRAÇÃO MCP (Cursor/Cline/Windsurf):
     else if (/linter|dependência|instalar|analisar método/i.test(t)) agent = "maintenance";
     const a = QA_AGENTS[agent] || QA_AGENTS.detection;
     console.log(JSON.stringify({ suggestedAgent: agent, suggestedTools: a.tools, description: a.desc }, null, 2));
+    process.exit(0);
+  }
+
+  if (cmd === "auto") {
+    const request = process.argv.slice(3).join(" ");
+    if (!request) {
+      console.error("❌ Uso: mcp-lab-agent auto <descrição do teste> [--max-retries N]");
+      process.exit(1);
+    }
+    const maxRetriesIdx = process.argv.indexOf("--max-retries");
+    const maxRetries = maxRetriesIdx !== -1 && process.argv[maxRetriesIdx + 1] ? parseInt(process.argv[maxRetriesIdx + 1], 10) : 3;
+    const cleanRequest = request.replace(/--max-retries\s+\d+/g, "").trim();
+
+    console.log(`\n🤖 Modo autônomo iniciado: "${cleanRequest}"\n`);
+    const structure = detectProjectStructure();
+    const fw = structure.testFrameworks[0];
+    if (!fw) {
+      console.error("❌ Nenhum framework detectado.");
+      process.exit(1);
+    }
+
+    const llm = resolveLLMProvider("simple");
+    if (!llm.apiKey) {
+      console.error("❌ Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env");
+      process.exit(1);
+    }
+
+    const memory = loadProjectMemory();
+    const contextLines = [
+      `Frameworks: ${structure.testFrameworks.join(", ")}`,
+      `Pastas: ${structure.testDirs.join(", ")}`,
+      memory.flows?.length ? `Fluxos: ${memory.flows.map((f) => f.name || f.id).join(", ")}` : "",
+    ].filter(Boolean).join("\n");
+
+    let testFilePath = null;
+    let testContent = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`\n[Tentativa ${attempt}/${maxRetries}] Gerando teste...`);
+
+      const { provider, apiKey, baseUrl, model } = llm;
+      const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
+      const systemPrompt = `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
+${memoryHints ? `\nAprendizados anteriores (use como referência):\n${memoryHints.slice(0, 1000)}` : ""}
+Retorne SOMENTE o código, sem markdown.`;
+
+      const userPrompt = `Contexto:\n${contextLines}\n\nGere teste para: ${cleanRequest}\nFramework: ${fw}`;
+
+      try {
+        let specContent = "";
+        if (provider === "gemini") {
+          const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+            }),
+          });
+          const data = await res.json();
+          specContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        } else {
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+              temperature: 0.3,
+              max_tokens: 4096,
+            }),
+          });
+          const data = await res.json();
+          specContent = data.choices?.[0]?.message?.content || "";
+        }
+        specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+        testContent = specContent;
+
+        if (!testFilePath) {
+          const fileName = cleanRequest.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
+          const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
+          const safeName = fileName + ext;
+          testFilePath = path.join(baseDir, safeName);
+          if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
+        }
+        fs.writeFileSync(testFilePath, testContent, "utf8");
+        console.log(`✅ Teste gravado: ${testFilePath}`);
+
+        console.log(`\n[Tentativa ${attempt}/${maxRetries}] Executando teste...`);
+        const runResult = await new Promise((resolve) => {
+          const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
+            cwd: PROJECT_ROOT,
+            stdio: ["inherit", "pipe", "pipe"],
+            shell: process.platform === "win32",
+          });
+          let stdout = "", stderr = "";
+          if (child.stdout) child.stdout.on("data", (d) => { stdout += d.toString(); });
+          if (child.stderr) child.stderr.on("data", (d) => { stderr += d.toString(); });
+          child.on("close", (code) => resolve({ code, output: [stdout, stderr].filter(Boolean).join("\n") }));
+        });
+
+        if (runResult.code === 0) {
+          console.log(`\n✅ Teste passou na tentativa ${attempt}!`);
+          saveProjectMemory({
+            learnings: [{ type: "test_generated", request: cleanRequest, framework: fw, success: true, passedFirstTime: attempt === 1, attempts: attempt, timestamp: new Date().toISOString() }],
+          });
+          console.log(`\n📊 Aprendizado salvo. Use "mcp-lab-agent stats" para ver métricas.\n`);
+          process.exit(0);
+        }
+
+        console.log(`\n❌ Teste falhou (exit ${runResult.code})`);
+        console.log(`\nSaída:\n${runResult.output.slice(0, 800)}\n`);
+
+        if (attempt >= maxRetries) {
+          console.log(`\n❌ Limite de tentativas atingido (${maxRetries}).\n`);
+          saveProjectMemory({
+            learnings: [{ type: "test_generated", request: cleanRequest, framework: fw, success: false, attempts: attempt, timestamp: new Date().toISOString() }],
+          });
+          process.exit(1);
+        }
+
+        console.log(`\n[Tentativa ${attempt}/${maxRetries}] Analisando falha...`);
+        const flakyAnalysis = detectFlakyPatterns(runResult.output);
+        if (flakyAnalysis.isLikelyFlaky) {
+          console.log(`⚠️ Flaky detectado (${flakyAnalysis.confidence.toFixed(2)}): ${flakyAnalysis.patterns.map((p) => p.pattern).join(", ")}`);
+        }
+
+        const explainResult = await generateFailureExplanation(runResult.output, testFilePath);
+        if (!explainResult.ok || !explainResult.structuredContent?.sugestaoCorrecao) {
+          console.log(`⚠️ Não foi possível gerar correção. Tentando novamente...`);
+          continue;
+        }
+
+        console.log(`\n[Tentativa ${attempt}/${maxRetries}] Aplicando correção...`);
+        const fixedCode = explainResult.structuredContent.sugestaoCorrecao;
+        testContent = fixedCode;
+        fs.writeFileSync(testFilePath, testContent, "utf8");
+        console.log(`✅ Correção aplicada.`);
+
+        if (flakyAnalysis.isLikelyFlaky) {
+          saveProjectMemory({
+            learnings: [{
+              type: flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix",
+              request: cleanRequest,
+              framework: fw,
+              fix: fixedCode.slice(0, 500),
+              success: false,
+              timestamp: new Date().toISOString(),
+            }],
+          });
+        }
+      } catch (err) {
+        console.error(`\n❌ Erro na tentativa ${attempt}: ${err.message}\n`);
+        process.exit(1);
+      }
+    }
+
+    console.log(`\n❌ Falhou após ${maxRetries} tentativa(s).\n`);
+    process.exit(1);
+  }
+
+  if (cmd === "stats") {
+    const stats = getMemoryStats();
+    console.log(`
+📊 Estatísticas de Aprendizado
+
+Total de aprendizados: ${stats.totalLearnings}
+Correções bem-sucedidas: ${stats.successfulFixes}
+Correções de seletores: ${stats.selectorFixes}
+Correções de timing: ${stats.timingFixes}
+Testes gerados: ${stats.testsGenerated}
+Taxa de sucesso na 1ª tentativa: ${stats.firstAttemptSuccessRate}%
+
+${stats.totalLearnings === 0 ? "⚠️ Ainda não há aprendizados. Use 'mcp-lab-agent auto <descrição>' para gerar testes e aprender com erros." : ""}
+`);
     process.exit(0);
   }
 
