@@ -1,6 +1,6 @@
 {
   "name": "mcp-lab-agent",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MCP server + AI agents for QA automation in any project (Cypress, Playwright, Jest)",
   "type": "module",
   "main": "dist/index.js",
