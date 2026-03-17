@@ -1,0 +1,19 @@
+{
+  "flows": [
+    {
+      "id": "login",
+      "name": "Login",
+      "testFiles": ["cypress/e2e/login.cy.js", "specs/login.spec.js"]
+    },
+    {
+      "id": "checkout",
+      "name": "Checkout",
+      "testFiles": ["e2e/checkout.cy.js", "e2e/payment.cy.js"]
+    },
+    {
+      "id": "cadastro",
+      "name": "Cadastro de usuário",
+      "testFiles": ["specs/register.spec.js"]
+    }
+  ]
+}

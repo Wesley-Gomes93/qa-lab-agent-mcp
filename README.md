@@ -142,6 +142,10 @@ Configure no `~/.cursor/mcp.json`:
 | `get_test_coverage` | Gera relatório de cobertura de testes (Jest) |
 | `watch_tests` | Inicia testes em watch mode (Jest/Vitest) |
 | `create_test_template` | Gera boilerplate de teste (API/UI/Unit) para qualquer framework |
+| `suggest_selector_fix` | **Self-healing:** Sugere seletor alternativo quando UI muda (element not found) |
+| `get_business_metrics` | **Métricas de negócio:** Tempo até bug, custo por defeito, cobertura por fluxo |
+| `suggest_selector_fix` | **Self-healing:** Sugere correção de seletor quando UI muda (LLM) |
+| `get_business_metrics` | **Métricas de negócio:** Tempo até bug, custo por defeito, cobertura por fluxo |
 
 ## Variáveis de ambiente (opcional)
 
@@ -211,7 +215,8 @@ Você não precisa chamar essas ferramentas diretamente, mas é útil saber o qu
 | **Detecção** | `detect_project`, `read_project`, `list_test_files` |
 | **Execução** | `run_tests`, `watch_tests`, `get_test_coverage` |
 | **Geração** | `generate_tests`, `write_test`, `create_test_template` |
-| **Análise** | `analyze_failures`, `suggest_fix`, `create_bug_report` |
+| **Análise** | `analyze_failures`, `suggest_fix`, `suggest_selector_fix`, `create_bug_report` |
+| **Métricas** | `get_business_metrics` |
 | **Manutenção** | `run_linter`, `install_dependencies` |
 
 ## Publicar no npm

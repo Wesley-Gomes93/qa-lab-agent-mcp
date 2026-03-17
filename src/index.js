@@ -334,6 +334,68 @@ function matchesFramework(inferred, requested) {
 }
 
 // ============================================================================
+// MÉTRICAS DE NEGÓCIO - Helpers
+// ============================================================================
+
+const METRICS_FILE = path.join(PROJECT_ROOT, ".qa-lab-metrics.json");
+const FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
+
+function parseTestRunResult(runOutput, exitCode) {
+  let passed = 0;
+  let failed = 0;
+  const jestMatch = runOutput.match(/Tests:\s+(\d+)\s+passed(?:,\s*(\d+)\s+failed)?/);
+  if (jestMatch) {
+    passed = parseInt(jestMatch[1], 10);
+    failed = jestMatch[2] ? parseInt(jestMatch[2], 10) : 0;
+  }
+  const cypressPass = runOutput.match(/(\d+)\s+passing/);
+  const cypressFail = runOutput.match(/(\d+)\s+failing/);
+  if (cypressPass) passed = parseInt(cypressPass[1], 10);
+  if (cypressFail) failed = parseInt(cypressFail[1], 10);
+  const pwPass = runOutput.match(/(\d+)\s+passed/);
+  const pwFail = runOutput.match(/(\d+)\s+failed/);
+  if (pwPass) passed = parseInt(pwPass[1], 10);
+  if (pwFail) failed = parseInt(pwFail[1], 10);
+  if (passed === 0 && failed === 0) {
+    if (exitCode === 0) passed = 1;
+    else failed = 1;
+  }
+  return { passed, failed };
+}
+
+function appendMetricsEvent(event) {
+  try {
+    let data = { events: [], lastUpdated: new Date().toISOString() };
+    if (fs.existsSync(METRICS_FILE)) {
+      const raw = fs.readFileSync(METRICS_FILE, "utf8");
+      try {
+        data = JSON.parse(raw);
+      } catch {}
+    }
+    data.events = data.events || [];
+    data.events.push({ ...event, timestamp: event.timestamp || new Date().toISOString() });
+    data.lastUpdated = new Date().toISOString();
+    if (data.events.length > 500) data.events = data.events.slice(-400);
+    fs.writeFileSync(METRICS_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch {}
+}
+
+function extractFailuresFromOutput(runOutput) {
+  const failures = [];
+  const lines = runOutput.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/fail|error|assertion|timeout|element not found|selector/i.test(line)) {
+      failures.push({
+        test: lines[Math.max(0, i - 1)]?.trim() || "unknown",
+        message: line.trim().slice(0, 500),
+      });
+    }
+  }
+  return failures.slice(0, 20);
+}
+
+// ============================================================================
 // FERRAMENTAS GENÉRICAS
 // ============================================================================
 
@@ -557,6 +619,7 @@ server.registerTool(
       cwd = PROJECT_ROOT;
     }
 
+    const startTime = Date.now();
     return new Promise((resolve) => {
       const child = spawn(cmd, args, {
         cwd,
@@ -585,11 +648,23 @@ server.registerTool(
       child.on("close", (code) => {
         const runOutput = [stdout, stderr].filter(Boolean).join("\n").trim();
         const passed = code === 0;
+        const durationSeconds = Math.round((Date.now() - startTime) / 1000);
         if (!passed && runOutput) {
           try {
             fs.writeFileSync(path.join(PROJECT_ROOT, ".qa-lab-last-failure.log"), runOutput, "utf8");
           } catch {}
         }
+        const { passed: p, failed: f } = parseTestRunResult(runOutput, code);
+        appendMetricsEvent({
+          type: "test_run",
+          framework: selectedFramework,
+          spec: spec || undefined,
+          passed: p,
+          failed: f,
+          durationSeconds,
+          exitCode: code ?? 1,
+          failures: !passed ? extractFailuresFromOutput(runOutput) : undefined,
+        });
         resolve({
           content: [{ type: "text", text: passed ? "Testes executados com sucesso." : "Falha na execução dos testes." }],
           structuredContent: {
@@ -1309,6 +1384,142 @@ server.registerTool(
   }
 );
 
+// ============================================================================
+// SELF-HEALING - Sugestão de correção de seletores quando UI muda
+// ============================================================================
+
+server.registerTool(
+  "suggest_selector_fix",
+  {
+    title: "Sugerir correção de seletor (Self-healing)",
+    description: "Quando um teste falha por elemento não encontrado (seletor quebrado após mudança de UI), usa LLM para sugerir seletor alternativo mais resiliente. Prioriza data-testid, role, texto acessível.",
+    inputSchema: z.object({
+      testFilePath: z.string().describe("Caminho do arquivo de teste que falhou (ex: specs/login.spec.js)."),
+      errorOutput: z.string().optional().describe("Output do terminal da falha. Se vazio, lê de .qa-lab-last-failure.log."),
+      framework: z.enum(["cypress", "playwright", "webdriverio", "appium"]).optional().describe("Framework do teste. Detectado automaticamente se omitido."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      selectorSugerido: z.string().optional(),
+      codigoCorrigido: z.string().optional(),
+      explicacao: z.string().optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async ({ testFilePath, errorOutput, framework }) => {
+    const structure = detectProjectStructure();
+    const fw = framework || inferFrameworkFromFile(testFilePath.split("/").pop(), structure);
+
+    let resolvedOutput = errorOutput;
+    if (!resolvedOutput) {
+      const logPath = path.join(PROJECT_ROOT, ".qa-lab-last-failure.log");
+      if (fs.existsSync(logPath)) {
+        resolvedOutput = fs.readFileSync(logPath, "utf8");
+      }
+    }
+    if (!resolvedOutput) {
+      return {
+        content: [{ type: "text", text: "Nenhum output de erro. Rode os testes primeiro ou forneça errorOutput." }],
+        structuredContent: { ok: false, error: "No error output" },
+      };
+    }
+
+    if (!/element not found|selector|timeout|locator|cy\.get|page\.locator/i.test(resolvedOutput)) {
+      return {
+        content: [{ type: "text", text: "A falha não parece ser de seletor/elemento. Use por_que_falhou ou suggest_fix para outros tipos de falha." }],
+        structuredContent: { ok: false, error: "Not a selector-related failure" },
+      };
+    }
+
+    let testCode = "";
+    const fullPath = path.join(PROJECT_ROOT, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
+    if (fs.existsSync(fullPath)) {
+      try {
+        testCode = fs.readFileSync(fullPath, "utf8");
+      } catch {}
+    }
+
+    const GROQ_KEY = process.env.GROQ_API_KEY;
+    const GEMINI_KEY = process.env.GEMINI_API_KEY;
+    const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
+    if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+      return {
+        content: [{ type: "text", text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env" }],
+        structuredContent: { ok: false, error: "No API key configured" },
+      };
+    }
+
+    const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
+    const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
+    const baseUrl = provider === "groq" ? "https://api.groq.com/openai/v1" : provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1";
+    const model = provider === "groq" ? "llama-3.3-70b-versatile" : provider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini";
+
+    const fwHints = {
+      cypress: "Cypress: cy.get('[data-testid=...]'), cy.contains(), cy.get('button').filter(':visible')",
+      playwright: "Playwright: page.getByRole(), page.getByTestId(), page.locator('button:has-text(\"...\")')",
+      webdriverio: "WebdriverIO: $('[data-testid=...]'), $('button=Texto')",
+      appium: "Appium: $('~accessibility-id'), $('//android.view.View')",
+    };
+
+    const systemPrompt = `Você é um especialista em testes E2E. O teste falhou porque um seletor não encontrou o elemento (UI mudou).
+Analise o erro e o código e responda APENAS em JSON (sem markdown) com as chaves:
+- selectorSugerido: string (o novo seletor recomendado, mais resiliente)
+- codigoCorrigido: string (bloco de código completo corrigido, apenas a parte relevante do teste)
+- explicacao: string (breve explicação em português: por que o antigo falhou e por que o novo é melhor)
+
+Priorize nesta ordem: data-testid > role + accessible name > texto visível > estrutura. Evite classes CSS e IDs que mudam.
+
+Framework: ${fw}. ${fwHints[fw] || ""}`;
+
+    const userPrompt = `Output do erro:
+---
+${resolvedOutput.slice(0, 8000)}
+---
+Código do teste:
+---
+${testCode ? testCode.slice(0, 6000) : "Não disponível"}
+---`;
+
+    try {
+      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+      let data = {};
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = {
+          selectorSugerido: null,
+          codigoCorrigido: raw.slice(0, 2000),
+          explicacao: "Não foi possível parsear. Resposta do LLM acima.",
+        };
+      }
+
+      const text = [
+        data.explicacao && `## Explicação\n${data.explicacao}`,
+        data.selectorSugerido && `## Seletor sugerido\n\`${data.selectorSugerido}\``,
+        data.codigoCorrigido && `## Código corrigido\n\`\`\`${fw}\n${data.codigoCorrigido}\n\`\`\``,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      return {
+        content: [{ type: "text", text: text || JSON.stringify(data, null, 2) }],
+        structuredContent: {
+          ok: true,
+          selectorSugerido: data.selectorSugerido,
+          codigoCorrigido: data.codigoCorrigido,
+          explicacao: data.explicacao,
+        },
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Erro ao chamar LLM: ${err.message}` }],
+        structuredContent: { ok: false, error: err.message },
+      };
+    }
+  }
+);
+
 server.registerTool(
   "create_bug_report",
   {
@@ -1364,9 +1575,179 @@ server.registerTool(
 
     const report = lines.join("\n");
 
+    appendMetricsEvent({ type: "bug_reported", failuresCount: failures.length, title: bugTitle });
+
     return {
       content: [{ type: "text", text: report }],
       structuredContent: { ok: true, report, title: bugTitle },
+    };
+  }
+);
+
+// ============================================================================
+// MÉTRICAS DE NEGÓCIO - Relatório agregado
+// ============================================================================
+
+server.registerTool(
+  "get_business_metrics",
+  {
+    title: "Obter métricas de negócio",
+    description: "Retorna métricas: tempo até bug, custo por defeito (tempo estimado), cobertura por fluxo. Requer run_tests executados e opcionalmente qa-lab-flows.json.",
+    inputSchema: z.object({
+      period: z.enum(["7d", "30d", "all"]).optional().describe("Período para analisar. Default: 30d."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      timeToBug: z.object({
+        avgHours: z.number(),
+        lastFailureAt: z.string().optional(),
+        runsWithFailures: z.number(),
+      }).optional(),
+      costPerDefect: z.object({
+        avgMinutesPerDefect: z.number(),
+        totalFailures: z.number(),
+        estimatedHoursSpent: z.number(),
+      }).optional(),
+      flowCoverage: z.object({
+        totalFlows: z.number(),
+        coveredFlows: z.number(),
+        percent: z.number(),
+        details: z.array(z.object({ flow: z.string(), covered: z.boolean() })),
+      }).optional(),
+      summary: z.string(),
+    }),
+  },
+  async ({ period = "30d" } = {}) => {
+    const now = Date.now();
+    const msByPeriod = { "7d": 7 * 24 * 60 * 60 * 1000, "30d": 30 * 24 * 60 * 60 * 1000, all: Infinity };
+    const cutoff = now - msByPeriod[period];
+
+    let data = { events: [] };
+    if (fs.existsSync(METRICS_FILE)) {
+      try {
+        data = JSON.parse(fs.readFileSync(METRICS_FILE, "utf8"));
+      } catch {}
+    }
+
+    const events = (data.events || []).filter((e) => new Date(e.timestamp).getTime() >= cutoff);
+
+    const testRuns = events.filter((e) => e.type === "test_run");
+    const failedRuns = testRuns.filter((e) => (e.failed || 0) > 0);
+    const totalFailed = testRuns.reduce((sum, e) => sum + (e.failed || 0), 0);
+    const totalDuration = testRuns.reduce((sum, e) => sum + (e.durationSeconds || 0), 0);
+
+    let timeToBug = null;
+    if (failedRuns.length > 0) {
+      const lastFailure = failedRuns[failedRuns.length - 1];
+      timeToBug = {
+        avgHours: 0,
+        lastFailureAt: lastFailure.timestamp,
+        runsWithFailures: failedRuns.length,
+      };
+      if (failedRuns.length >= 2) {
+        const deltas = [];
+        for (let i = 1; i < failedRuns.length; i++) {
+          const prev = new Date(failedRuns[i - 1].timestamp).getTime();
+          const curr = new Date(failedRuns[i].timestamp).getTime();
+          deltas.push((curr - prev) / (1000 * 60 * 60));
+        }
+        timeToBug.avgHours = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+      }
+    }
+
+    let costPerDefect = null;
+    if (totalFailed > 0) {
+      const estimatedMinutesSpent = totalDuration + totalFailed * 5;
+      costPerDefect = {
+        avgMinutesPerDefect: Math.round(estimatedMinutesSpent / totalFailed),
+        totalFailures: totalFailed,
+        estimatedHoursSpent: Math.round((estimatedMinutesSpent / 60) * 10) / 10,
+      };
+    }
+
+    let flowCoverage = null;
+    if (fs.existsSync(FLOWS_CONFIG_FILE)) {
+      try {
+        const flowsConfig = JSON.parse(fs.readFileSync(FLOWS_CONFIG_FILE, "utf8"));
+        const flows = flowsConfig.flows || [];
+        const structure = detectProjectStructure();
+        const allTestFiles = new Set(collectTestFiles(structure).map((e) => e.path));
+
+        const details = flows.map((f) => {
+          const testFiles = f.testFiles || [];
+          const covered = testFiles.some((tf) => allTestFiles.has(tf) || allTestFiles.has(tf.replace(/\\/g, "/")));
+          return { flow: f.name || f.id || "?", covered };
+        });
+
+        flowCoverage = {
+          totalFlows: flows.length,
+          coveredFlows: details.filter((d) => d.covered).length,
+          percent: flows.length ? Math.round((details.filter((d) => d.covered).length / flows.length) * 100) : 0,
+          details,
+        };
+      } catch {}
+    }
+
+    const lines = [
+      "## Métricas de negócio",
+      "",
+      `Período: ${period}`,
+      "",
+      timeToBug
+        ? [
+            "### Tempo até bug",
+            `- Última falha: ${timeToBug.lastFailureAt || "N/A"}`,
+            `- Execuções com falha: ${timeToBug.runsWithFailures}`,
+            timeToBug.avgHours > 0 ? `- Média entre falhas: ${timeToBug.avgHours.toFixed(1)}h` : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : "",
+      costPerDefect
+        ? [
+            "### Custo por defeito (estimativa)",
+            `- Total de falhas: ${costPerDefect.totalFailures}`,
+            `- Tempo médio por defeito: ~${costPerDefect.avgMinutesPerDefect} min`,
+            `- Horas estimadas gastas: ${costPerDefect.estimatedHoursSpent}h`,
+          ].join("\n")
+        : "",
+      flowCoverage
+        ? [
+            "### Cobertura por fluxo",
+            `- Fluxos cobertos: ${flowCoverage.coveredFlows}/${flowCoverage.totalFlows} (${flowCoverage.percent}%)`,
+            flowCoverage.details.map((d) => `  - ${d.flow}: ${d.covered ? "✅" : "❌"}`).join("\n"),
+          ].join("\n")
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (!timeToBug && !costPerDefect && !flowCoverage) {
+      const msg =
+        "Nenhuma métrica disponível. Rode run_tests para gerar dados. Para cobertura por fluxo, crie qa-lab-flows.json.";
+      return {
+        content: [{ type: "text", text: msg }],
+        structuredContent: { ok: false, summary: msg },
+      };
+    }
+
+    const summary = [
+      timeToBug && `${timeToBug.runsWithFailures} execuções com falha`,
+      costPerDefect && `${costPerDefect.totalFailures} falhas (~${costPerDefect.avgMinutesPerDefect} min/defeito)`,
+      flowCoverage && `${flowCoverage.coveredFlows}/${flowCoverage.totalFlows} fluxos cobertos`,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    return {
+      content: [{ type: "text", text: lines || summary }],
+      structuredContent: {
+        ok: true,
+        timeToBug,
+        costPerDefect,
+        flowCoverage,
+        summary,
+      },
     };
   }
 );
