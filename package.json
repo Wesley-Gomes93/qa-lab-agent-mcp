@@ -1,6 +1,6 @@
 {
   "name": "mcp-lab-agent",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Autonomous QA agent that learns from its own errors - auto-generates, runs, fixes and improves tests",
   "type": "module",
   "main": "dist/index.js",

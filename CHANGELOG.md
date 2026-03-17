@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.0.1] - 2026-03-17
+
+### 🏢 Suporte Corporativo
+
+#### Ollama (LLMs Locais)
+- **100% offline:** Funciona sem APIs externas
+- **Detecção automática:** Se nenhuma API key configurada, usa `http://localhost:11434`
+- **Configurável:** `OLLAMA_BASE_URL` para servidor interno
+- **Compliance:** Dados não saem do ambiente corporativo
+
+#### LLM Customizado
+- **Endpoint interno:** `QA_LAB_LLM_BASE_URL` para LLM da empresa
+- **API key customizada:** `QA_LAB_LLM_API_KEY`
+
+### 📚 Documentação
+
+- **CONFIGURACAO_CORPORATIVA.md:** Guia completo para ambientes com APIs bloqueadas
+- **README:** Seção atualizada com setup do Ollama
+
+---
+
 ## [2.0.0] - 2026-03-17
 
 ### 🚀 Transformação: Agente Autônomo
