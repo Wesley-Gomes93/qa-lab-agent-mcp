@@ -294,7 +294,7 @@ function collectTestFiles(structure, options = {}) {
         } else if (e.isFile() && isTestFile(e.name)) {
           const filePath = `${dir}/${rel}`;
           if (pattern && !filePath.toLowerCase().includes(pattern.toLowerCase())) continue;
-          const inferredFw = inferFrameworkFromFile(e.name, structure);
+          const inferredFw = inferFrameworkFromFile(e.name, structure, filePath);
           if (framework && framework !== "all" && inferredFw !== framework && !matchesFramework(inferredFw, framework)) continue;
           const entry = { path: filePath, inferredFramework: inferredFw };
           if (maxContentFiles > 0 && results.length < maxContentFiles) {
@@ -311,7 +311,21 @@ function collectTestFiles(structure, options = {}) {
   return results;
 }
 
-function inferFrameworkFromFile(name, structure = {}) {
+function inferFrameworkFromFile(name, structure = {}, filePath = "") {
+  const pathLower = (filePath || "").toLowerCase().replace(/\\/g, "/");
+  // Inferir pelo CAMINHO quando há múltiplos frameworks (ex: tests/cypress/, tests/selenium-python/)
+  if (/[\/]cypress[\/\-]/.test(pathLower)) return "cypress";
+  if (/[\/]playwright[\/\-]/.test(pathLower)) return "playwright";
+  if (/[\/]wdio[\/\-]|[\/]webdriver[\/\-]/.test(pathLower)) return "webdriverio";
+  if (/[\/]appium[\/\-]/.test(pathLower)) return "appium";
+  if (/[\/]selenium-python[\/]|[\/]pytest[\/\-]/.test(pathLower)) return "pytest";
+  if (/[\/]robot[\/\-]/.test(pathLower)) return "robot";
+  if (/[\/]codecept[\/\-]/.test(pathLower)) return "codeceptjs";
+  if (/[\/]nightwatch[\/\-]/.test(pathLower)) return "nightwatch";
+  if (/[\/]testcafe[\/\-]/.test(pathLower)) return "testcafe";
+  if (/[\/]puppeteer[\/\-]/.test(pathLower)) return "puppeteer";
+  if (/[\/]behave[\/\-]|[\/]features[\/]/.test(pathLower)) return "behave";
+  // Fallback: inferir pela extensão do arquivo
   if (/\.cy\.(js|ts|jsx|tsx)/i.test(name)) return "cypress";
   if (/_test\.(js|ts)$/i.test(name)) return "codeceptjs";
   if (/\.spec\.(js|ts|jsx|tsx)/i.test(name)) {
