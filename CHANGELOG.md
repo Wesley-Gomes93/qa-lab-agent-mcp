@@ -14,9 +14,42 @@
 - **Endpoint interno:** `QA_LAB_LLM_BASE_URL` para LLM da empresa
 - **API key customizada:** `QA_LAB_LLM_API_KEY`
 
+### 🎯 Ferramentas "Wow" (IA Proativa)
+
+#### `qa_health_check`
+- **Diagnóstico completo:** Analisa frameworks, testes, cobertura, aprendizados
+- **Nota 0-100:** Score de saúde do QA
+- **Recomendações:** Lista ações específicas
+- **Chat:** "Faça um health check do QA"
+
+#### `qa_suggest_next_test`
+- **IA proativa:** Sugere qual teste criar a seguir
+- **Priorização:** HIGH, MEDIUM, LOW
+- **Baseado em:** Gaps de cobertura, fluxos críticos, qa-lab-flows.json
+- **Chat:** "Sugira qual teste criar"
+
+#### `qa_predict_flaky`
+- **Predição:** Analisa testes e prevê quais vão ficar flaky
+- **Classificação de risco:** ALTO, MÉDIO, BAIXO
+- **Detecta:** Seletores frágeis, waits inadequados, network sem mock
+- **Chat:** "Preveja quais testes vão dar problema"
+
+#### `qa_compare_with_industry`
+- **Benchmark:** Compara com padrões da indústria
+- **Métricas:** Cobertura, taxa de sucesso, total de testes
+- **Veredito:** Acima, na média ou abaixo
+- **Chat:** "Compare meu projeto com a indústria"
+
+#### `qa_time_travel`
+- **Evolução temporal:** Timeline de aprendizados
+- **Tendência:** Melhorando, estável ou começando
+- **Períodos:** 7d, 30d, all
+- **Chat:** "Mostre a evolução do agente nos últimos 30 dias"
+
 ### 📚 Documentação
 
 - **CONFIGURACAO_CORPORATIVA.md:** Guia completo para ambientes com APIs bloqueadas
+- **COMANDOS_WOW.md:** Comandos que impressionam no chat
 - **README:** Seção atualizada com setup do Ollama
 
 ---

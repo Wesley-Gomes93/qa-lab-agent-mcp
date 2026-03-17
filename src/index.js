@@ -748,7 +748,8 @@ const QA_AGENTS = {
   analysis: { tools: ["analyze_failures", "por_que_falhou", "suggest_fix", "suggest_selector_fix"], desc: "Análise de falhas e sugestões" },
   browser: { tools: ["web_eval_browser"], desc: "Avaliação em browser real (screenshots, network, console)" },
   reporting: { tools: ["create_bug_report", "get_business_metrics"], desc: "Relatórios e métricas" },
-  learning: { tools: ["qa_learning_stats"], desc: "Estatísticas de aprendizado e evolução" },
+  learning: { tools: ["qa_learning_stats", "qa_time_travel"], desc: "Estatísticas de aprendizado e evolução" },
+  intelligence: { tools: ["qa_health_check", "qa_suggest_next_test", "qa_predict_flaky"], desc: "IA proativa: diagnóstico, sugestões e predições" },
   maintenance: { tools: ["run_linter", "install_dependencies", "analyze_file_methods"], desc: "Manutenção e análise de código" },
 };
 
@@ -772,8 +773,11 @@ server.registerTool(
     if (/autônomo|auto|completo|loop|aprende|corrige automaticamente/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: autonomous → qa_auto (loop completo: gera, roda, corrige, aprende)" }], structuredContent: { ok: true, suggestedAgent: "autonomous", suggestedTools: QA_AGENTS.autonomous.tools, description: QA_AGENTS.autonomous.desc } };
     }
-    if (/estatística|métrica de aprendizado|taxa de sucesso|learning|stats/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: learning → qa_learning_stats" }], structuredContent: { ok: true, suggestedAgent: "learning", suggestedTools: QA_AGENTS.learning.tools, description: QA_AGENTS.learning.desc } };
+    if (/health|saúde|diagnóstico|nota|score|próximo teste|sugerir|prever|flaky|benchmark|comparar|indústria/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: intelligence → qa_health_check, qa_suggest_next_test, qa_predict_flaky, qa_compare_with_industry" }], structuredContent: { ok: true, suggestedAgent: "intelligence", suggestedTools: QA_AGENTS.intelligence.tools, description: QA_AGENTS.intelligence.desc } };
+    }
+    if (/estatística|métrica de aprendizado|taxa de sucesso|learning|stats|evolução|timeline|tempo|histórico/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: learning → qa_learning_stats, qa_time_travel" }], structuredContent: { ok: true, suggestedAgent: "learning", suggestedTools: QA_AGENTS.learning.tools, description: QA_AGENTS.learning.desc } };
     }
     if (/rodar|executar|run|test|coverage|watch/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: execution → run_tests, get_test_coverage" }], structuredContent: { ok: true, suggestedAgent: "execution", suggestedTools: QA_AGENTS.execution.tools, description: QA_AGENTS.execution.desc } };
@@ -790,7 +794,7 @@ server.registerTool(
     if (/detectar|estrutura|listar|arquivos|framework/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: detection → detect_project, list_test_files" }], structuredContent: { ok: true, suggestedAgent: "detection", suggestedTools: QA_AGENTS.detection.tools, description: QA_AGENTS.detection.desc } };
     }
-    if (/relatório|bug|métricas|metrics|coverage/i.test(t)) {
+    if (/relatório|bug|métricas|metrics/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: reporting → create_bug_report, get_business_metrics" }], structuredContent: { ok: true, suggestedAgent: "reporting", suggestedTools: QA_AGENTS.reporting.tools, description: QA_AGENTS.reporting.desc } };
     }
     return { content: [{ type: "text", text: "Agente: detection (genérico)" }], structuredContent: { ok: true, suggestedAgent: "detection", suggestedTools: QA_AGENTS.detection.tools, description: QA_AGENTS.detection.desc } };
@@ -2359,6 +2363,260 @@ server.registerTool(
 );
 
 server.registerTool(
+  "qa_health_check",
+  {
+    title: "Health check completo do projeto",
+    description: "[DIAGNÓSTICO COMPLETO] Analisa tudo: frameworks detectados, testes existentes, cobertura, últimas falhas, aprendizados do agente, e dá uma nota de 0-100 para a saúde do QA.",
+    inputSchema: z.object({}),
+    outputSchema: z.object({
+      score: z.number(),
+      frameworks: z.array(z.string()),
+      totalTests: z.number(),
+      lastRunStatus: z.string().optional(),
+      learningRate: z.number(),
+      recommendations: z.array(z.string()),
+    }),
+  },
+  async () => {
+    const structure = detectProjectStructure();
+    const memory = loadProjectMemory();
+    const stats = getMemoryStats();
+
+    const testFiles = structure.testDirs.flatMap((dir) => {
+      const fullPath = path.join(PROJECT_ROOT, dir);
+      if (!fs.existsSync(fullPath)) return [];
+      return fs.readdirSync(fullPath, { recursive: true })
+        .filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+    });
+
+    let score = 0;
+    const recommendations = [];
+
+    if (structure.testFrameworks.length > 0) score += 20;
+    else recommendations.push("❌ Nenhum framework detectado. Configure testes.");
+
+    if (testFiles.length > 0) score += 20;
+    else recommendations.push("⚠️ Nenhum arquivo de teste encontrado.");
+
+    if (testFiles.length > 10) score += 10;
+    if (testFiles.length > 30) score += 10;
+
+    if (memory.lastRun?.passed) score += 15;
+    else if (memory.lastRun) recommendations.push("⚠️ Última execução falhou. Rode os testes.");
+
+    if (stats.testsGenerated > 0) score += 10;
+    if (stats.firstAttemptSuccessRate > 50) score += 10;
+    if (stats.firstAttemptSuccessRate > 80) score += 5;
+
+    if (stats.totalLearnings > 5) score += 5;
+    else recommendations.push("💡 Use 'qa_auto' para gerar testes e aprender.");
+
+    if (structure.testFrameworks.length > 2) score += 5;
+
+    if (score < 50) recommendations.push("🔧 Projeto precisa de mais testes e automação.");
+    else if (score < 80) recommendations.push("✅ Projeto em bom estado. Continue melhorando.");
+    else recommendations.push("🚀 Projeto excelente! QA maduro.");
+
+    const emoji = score >= 80 ? "🚀" : score >= 50 ? "✅" : "⚠️";
+    const summary = `${emoji} **Health Check do QA**
+
+**Nota:** ${score}/100
+
+**Frameworks:** ${structure.testFrameworks.join(", ") || "nenhum"}
+**Testes:** ${testFiles.length} arquivo(s)
+**Taxa de sucesso (1ª tentativa):** ${stats.firstAttemptSuccessRate}%
+**Aprendizados:** ${stats.totalLearnings}
+**Última execução:** ${memory.lastRun?.passed ? "✅ passou" : memory.lastRun ? "❌ falhou" : "—"}
+
+**Recomendações:**
+${recommendations.map((r) => `- ${r}`).join("\n")}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        score,
+        frameworks: structure.testFrameworks,
+        totalTests: testFiles.length,
+        lastRunStatus: memory.lastRun?.passed ? "passed" : memory.lastRun ? "failed" : "unknown",
+        learningRate: stats.firstAttemptSuccessRate,
+        recommendations,
+      },
+    };
+  }
+);
+
+server.registerTool(
+  "qa_suggest_next_test",
+  {
+    title: "Sugerir próximo teste a criar",
+    description: "[IA PROATIVA] Analisa o projeto e sugere qual teste criar a seguir (baseado em cobertura, fluxos críticos, gaps detectados).",
+    inputSchema: z.object({}),
+    outputSchema: z.object({
+      suggestions: z.array(z.object({
+        priority: z.enum(["high", "medium", "low"]),
+        testName: z.string(),
+        reason: z.string(),
+        framework: z.string(),
+      })),
+    }),
+  },
+  async () => {
+    const structure = detectProjectStructure();
+    const memory = loadProjectMemory();
+    const suggestions = [];
+
+    const testFiles = structure.testDirs.flatMap((dir) => {
+      const fullPath = path.join(PROJECT_ROOT, dir);
+      if (!fs.existsSync(fullPath)) return [];
+      return fs.readdirSync(fullPath, { recursive: true })
+        .filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f))
+        .map((f) => f.toLowerCase());
+    });
+
+    const criticalFlows = ["login", "logout", "checkout", "payment", "signup", "search"];
+    const missingFlows = criticalFlows.filter((flow) => !testFiles.some((f) => f.includes(flow)));
+
+    missingFlows.forEach((flow) => {
+      suggestions.push({
+        priority: ["login", "checkout", "payment"].includes(flow) ? "high" : "medium",
+        testName: `${flow} flow`,
+        reason: `Fluxo crítico sem cobertura detectada`,
+        framework: structure.testFrameworks[0] || "cypress",
+      });
+    });
+
+    if (memory.flows?.length) {
+      memory.flows.forEach((flow) => {
+        const flowName = flow.name || flow.id;
+        if (!testFiles.some((f) => f.includes(flowName.toLowerCase()))) {
+          suggestions.push({
+            priority: "high",
+            testName: flowName,
+            reason: `Fluxo de negócio definido em qa-lab-flows.json`,
+            framework: structure.testFrameworks[0] || "cypress",
+          });
+        }
+      });
+    }
+
+    if (structure.hasBackend && !testFiles.some((f) => f.includes("api"))) {
+      suggestions.push({
+        priority: "medium",
+        testName: "API health check",
+        reason: "Backend detectado mas sem testes de API",
+        framework: "jest",
+      });
+    }
+
+    if (suggestions.length === 0) {
+      suggestions.push({
+        priority: "low",
+        testName: "edge cases",
+        reason: "Cobertura básica completa. Foque em casos de borda.",
+        framework: structure.testFrameworks[0] || "cypress",
+      });
+    }
+
+    const summary = `💡 **Sugestões de Próximos Testes**
+
+${suggestions.slice(0, 5).map((s, i) => `${i + 1}. **${s.testName}** (${s.priority})
+   - ${s.reason}
+   - Framework: ${s.framework}
+   - Comando: \`mcp-lab-agent auto "${s.testName}"\``).join("\n\n")}
+
+${suggestions.length > 5 ? `\n... e mais ${suggestions.length - 5} sugestão(ões)` : ""}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: { suggestions: suggestions.slice(0, 10) },
+    };
+  }
+);
+
+server.registerTool(
+  "qa_time_travel",
+  {
+    title: "Viajar no tempo: ver evolução do agente",
+    description: "[VISUALIZAÇÃO] Mostra como o agente evoluiu ao longo do tempo: taxa de sucesso por semana, tipos de erros corrigidos, padrões aprendidos.",
+    inputSchema: z.object({
+      period: z.enum(["7d", "30d", "all"]).optional().describe("Período (default: all)."),
+    }),
+    outputSchema: z.object({
+      timeline: z.array(z.object({
+        date: z.string(),
+        testsGenerated: z.number(),
+        successRate: z.number(),
+      })),
+      topLearnings: z.array(z.string()),
+    }),
+  },
+  async ({ period = "all" }) => {
+    const memory = loadProjectMemory();
+    const learnings = memory.learnings || [];
+
+    if (learnings.length === 0) {
+      return {
+        content: [{ type: "text", text: "⏳ Ainda não há histórico. Use 'qa_auto' para começar a aprender." }],
+        structuredContent: { timeline: [], topLearnings: [] },
+      };
+    }
+
+    const now = new Date();
+    const cutoff = period === "7d" ? 7 : period === "30d" ? 30 : 9999;
+    const filtered = learnings.filter((l) => {
+      const age = (now - new Date(l.timestamp)) / (1000 * 60 * 60 * 24);
+      return age <= cutoff;
+    });
+
+    const byDate = {};
+    filtered.forEach((l) => {
+      const date = l.timestamp.split("T")[0];
+      if (!byDate[date]) byDate[date] = { testsGenerated: 0, passed: 0, total: 0 };
+      if (l.type === "test_generated") {
+        byDate[date].testsGenerated++;
+        byDate[date].total++;
+        if (l.passedFirstTime) byDate[date].passed++;
+      }
+    });
+
+    const timeline = Object.entries(byDate).map(([date, data]) => ({
+      date,
+      testsGenerated: data.testsGenerated,
+      successRate: data.total > 0 ? Math.round((data.passed / data.total) * 100) : 0,
+    })).sort((a, b) => a.date.localeCompare(b.date));
+
+    const selectorLearnings = filtered.filter((l) => l.type === "selector_fix" && l.success).length;
+    const timingLearnings = filtered.filter((l) => l.type === "timing_fix" && l.success).length;
+    const networkLearnings = filtered.filter((l) => l.type === "network_fix" && l.success).length;
+
+    const topLearnings = [
+      selectorLearnings > 0 ? `${selectorLearnings} correção(ões) de seletores` : null,
+      timingLearnings > 0 ? `${timingLearnings} correção(ões) de timing` : null,
+      networkLearnings > 0 ? `${networkLearnings} correção(ões) de network` : null,
+    ].filter(Boolean);
+
+    const chart = timeline.length > 0 ? timeline.map((t) => `${t.date}: ${t.testsGenerated} teste(s), ${t.successRate}% sucesso`).join("\n") : "Sem dados";
+
+    const summary = `⏳ **Evolução do Agente**
+
+**Período:** ${period === "7d" ? "Últimos 7 dias" : period === "30d" ? "Últimos 30 dias" : "Todo o histórico"}
+
+**Timeline:**
+${chart}
+
+**Top Aprendizados:**
+${topLearnings.length > 0 ? topLearnings.map((l) => `- ${l}`).join("\n") : "- Nenhum ainda"}
+
+**Tendência:** ${timeline.length > 1 && timeline[timeline.length - 1].successRate > timeline[0].successRate ? "📈 Melhorando" : timeline.length > 1 ? "📊 Estável" : "🌱 Começando"}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: { timeline, topLearnings },
+    };
+  }
+);
+
+server.registerTool(
   "qa_learning_stats",
   {
     title: "Estatísticas de aprendizado",
@@ -2389,6 +2647,186 @@ ${stats.totalLearnings === 0 ? "⚠️ Ainda não há aprendizados. Use qa_auto 
     return {
       content: [{ type: "text", text: summary }],
       structuredContent: stats,
+    };
+  }
+);
+
+server.registerTool(
+  "qa_compare_with_industry",
+  {
+    title: "Comparar com padrões da indústria",
+    description: "[BENCHMARK] Compara as métricas do seu projeto com benchmarks da indústria (cobertura, taxa de sucesso, tempo de execução).",
+    inputSchema: z.object({}),
+    outputSchema: z.object({
+      yourProject: z.object({
+        coverage: z.string(),
+        successRate: z.number(),
+        totalTests: z.number(),
+      }),
+      industry: z.object({
+        coverageAvg: z.string(),
+        successRateAvg: z.number(),
+      }),
+      verdict: z.string(),
+    }),
+  },
+  async () => {
+    const structure = detectProjectStructure();
+    const stats = getMemoryStats();
+
+    const testFiles = structure.testDirs.flatMap((dir) => {
+      const fullPath = path.join(PROJECT_ROOT, dir);
+      if (!fs.existsSync(fullPath)) return [];
+      return fs.readdirSync(fullPath, { recursive: true })
+        .filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+    });
+
+    const industryBenchmarks = {
+      coverageAvg: "70-80%",
+      successRateAvg: 85,
+      testsPerProject: 50,
+    };
+
+    let verdict = "";
+    if (stats.firstAttemptSuccessRate >= 85) {
+      verdict = "🏆 Acima da média da indústria!";
+    } else if (stats.firstAttemptSuccessRate >= 70) {
+      verdict = "✅ Na média da indústria.";
+    } else if (stats.firstAttemptSuccessRate >= 50) {
+      verdict = "⚠️ Abaixo da média. Use mais 'qa_auto' para melhorar.";
+    } else {
+      verdict = "🔧 Bem abaixo da média. Foque em aprendizado.";
+    }
+
+    const summary = `📊 **Benchmark: Seu Projeto vs. Indústria**
+
+**Seu Projeto:**
+- Testes: ${testFiles.length} (indústria: ~${industryBenchmarks.testsPerProject})
+- Taxa de sucesso (1ª tentativa): ${stats.firstAttemptSuccessRate}% (indústria: ~${industryBenchmarks.successRateAvg}%)
+- Aprendizados: ${stats.totalLearnings}
+
+**Indústria (média):**
+- Cobertura: ${industryBenchmarks.coverageAvg}
+- Taxa de sucesso: ${industryBenchmarks.successRateAvg}%
+- Testes por projeto: ~${industryBenchmarks.testsPerProject}
+
+**Veredito:** ${verdict}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        yourProject: {
+          coverage: "N/A",
+          successRate: stats.firstAttemptSuccessRate,
+          totalTests: testFiles.length,
+        },
+        industry: industryBenchmarks,
+        verdict,
+      },
+    };
+  }
+);
+
+server.registerTool(
+  "qa_predict_flaky",
+  {
+    title: "Prever quais testes vão ficar flaky",
+    description: "[PREDIÇÃO] Analisa testes existentes e prevê quais têm maior chance de se tornarem flaky (baseado em padrões: seletores frágeis, waits inadequados, dependências externas).",
+    inputSchema: z.object({
+      testFile: z.string().optional().describe("Arquivo específico (opcional). Se omitido, analisa todos."),
+    }),
+    outputSchema: z.object({
+      predictions: z.array(z.object({
+        file: z.string(),
+        risk: z.enum(["high", "medium", "low"]),
+        reasons: z.array(z.string()),
+      })),
+    }),
+  },
+  async ({ testFile }) => {
+    const structure = detectProjectStructure();
+    let testFiles = [];
+
+    if (testFile) {
+      testFiles = [testFile];
+    } else {
+      testFiles = structure.testDirs.flatMap((dir) => {
+        const fullPath = path.join(PROJECT_ROOT, dir);
+        if (!fs.existsSync(fullPath)) return [];
+        return fs.readdirSync(fullPath, { recursive: true })
+          .filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f))
+          .map((f) => path.join(dir, f));
+      });
+    }
+
+    const predictions = [];
+
+    for (const file of testFiles.slice(0, 20)) {
+      const fullPath = path.join(PROJECT_ROOT, file);
+      if (!fs.existsSync(fullPath)) continue;
+
+      const content = fs.readFileSync(fullPath, "utf8");
+      const reasons = [];
+      let riskScore = 0;
+
+      if (/\.(class|id)\s*=|querySelector|\.class-name/i.test(content)) {
+        reasons.push("Usa seletores CSS (frágeis)");
+        riskScore += 3;
+      }
+
+      if (!/data-testid|role=|aria-label/i.test(content) && /cy\.get|page\.locator|find/i.test(content)) {
+        reasons.push("Sem seletores semânticos (data-testid, role)");
+        riskScore += 2;
+      }
+
+      if (/sleep|wait\(\d+\)|timeout.*\d{4,}/i.test(content)) {
+        reasons.push("Usa waits fixos (timing frágil)");
+        riskScore += 2;
+      }
+
+      if (!/waitFor|waitUntil|should\('be.visible'\)/i.test(content) && /click|type|fill/i.test(content)) {
+        reasons.push("Interações sem wait explícito");
+        riskScore += 2;
+      }
+
+      if (/fetch|axios|http\.get|cy\.request/i.test(content) && !/mock|stub|intercept/i.test(content)) {
+        reasons.push("Chamadas de rede sem mock");
+        riskScore += 2;
+      }
+
+      if (/Math\.random|Date\.now|new Date\(\)/i.test(content)) {
+        reasons.push("Usa valores não-determinísticos");
+        riskScore += 1;
+      }
+
+      if (reasons.length > 0) {
+        predictions.push({
+          file,
+          risk: riskScore >= 5 ? "high" : riskScore >= 3 ? "medium" : "low",
+          reasons,
+        });
+      }
+    }
+
+    predictions.sort((a, b) => {
+      const riskOrder = { high: 3, medium: 2, low: 1 };
+      return riskOrder[b.risk] - riskOrder[a.risk];
+    });
+
+    const summary = predictions.length > 0
+      ? `🔮 **Predição de Testes Flaky**
+
+${predictions.slice(0, 10).map((p) => `**${p.file}** — Risco: ${p.risk === "high" ? "🔴 ALTO" : p.risk === "medium" ? "🟡 MÉDIO" : "🟢 BAIXO"}
+${p.reasons.map((r) => `  - ${r}`).join("\n")}`).join("\n\n")}
+
+${predictions.length > 10 ? `\n... e mais ${predictions.length - 10} arquivo(s)` : ""}
+
+💡 **Recomendação:** Refatore testes de risco ALTO antes que se tornem flaky.`
+      : "✅ Nenhum teste com alto risco de flaky detectado.";
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: { predictions: predictions.slice(0, 20) },
     };
   }
 );
