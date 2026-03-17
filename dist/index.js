@@ -20,16 +20,16 @@ function resolveLLMProvider(taskType = "simple") {
   const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
   const simpleModel = process.env.QA_LAB_LLM_SIMPLE;
   const complexModel = process.env.QA_LAB_LLM_COMPLEX;
-  let provider2 = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
-  const apiKey2 = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
-  const baseUrl2 = provider2 === "groq" ? "https://api.groq.com/openai/v1" : provider2 === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1";
-  let model2;
+  let provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
+  const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
+  const baseUrl = provider === "groq" ? "https://api.groq.com/openai/v1" : provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1";
+  let model;
   if (taskType === "complex") {
-    model2 = complexModel || (provider2 === "groq" ? "llama-3.3-70b-versatile" : provider2 === "gemini" ? "gemini-1.5-pro" : "gpt-4o");
+    model = complexModel || (provider === "groq" ? "llama-3.3-70b-versatile" : provider === "gemini" ? "gemini-1.5-pro" : "gpt-4o");
   } else {
-    model2 = simpleModel || (provider2 === "groq" ? "llama-3.1-8b-instant" : provider2 === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini");
+    model = simpleModel || (provider === "groq" ? "llama-3.1-8b-instant" : provider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini");
   }
-  return { provider: provider2, apiKey: apiKey2, baseUrl: baseUrl2, model: model2 };
+  return { provider, apiKey, baseUrl, model };
 }
 var MEMORY_FILE = path.join(PROJECT_ROOT, ".qa-lab-memory.json");
 var FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
@@ -944,6 +944,7 @@ ${content.slice(0, 6e3)}`;
         structuredContent: { ok: false, error: "No API key configured" }
       };
     }
+    const { provider, apiKey, baseUrl, model } = llm;
     const memory = loadProjectMemory();
     const memoryBlock = memory.flows?.length ? `
 
@@ -966,7 +967,7 @@ Regras:
 - pytest: def test_*, assert, fixtures
 - C\xF3digo limpo. Retorne SOMENTE o c\xF3digo, sem markdown`;
     const userPrompt = `Contexto do projeto:
-${context.slice(0, 5e3)}
+${contextWithMemory.slice(0, 5e3)}
 
 Gere um teste para: ${request}
 Framework alvo: ${fw}${referenceBlock}`;
@@ -1191,9 +1192,9 @@ function formatFailureExplanation(data) {
   }
   return lines.filter(Boolean).join("\n");
 }
-async function callLlmForExplanation(provider2, apiKey2, baseUrl2, model2, systemPrompt, userPrompt) {
-  if (provider2 === "gemini") {
-    const url = `${baseUrl2}/models/${model2}:generateContent?key=${apiKey2}`;
+async function callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt) {
+  if (provider === "gemini") {
+    const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
     const res2 = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1205,14 +1206,14 @@ async function callLlmForExplanation(provider2, apiKey2, baseUrl2, model2, syste
     const data2 = await res2.json();
     return data2.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
-  const res = await fetch(`${baseUrl2}/chat/completions`, {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey2}`
+      Authorization: `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: model2,
+      model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
@@ -1288,7 +1289,7 @@ server.registerTool(
         structuredContent: { ok: false, error: "No API key configured" }
       };
     }
-    const { provider: provider2, apiKey: apiKey2, baseUrl: baseUrl2, model: model2 } = llm;
+    const { provider, apiKey, baseUrl, model } = llm;
     const fwHints = {
       webdriverio: "WebdriverIO (describe/it, $, browser.$)",
       appium: "Appium/WebdriverIO (mobile, $, browser.$)",
@@ -1319,7 +1320,7 @@ C\xF3digo do teste que falhou:
 ${testCode.slice(0, 6e3)}
 ---` : ""}`;
     try {
-      let raw = await callLlmForExplanation(provider2, apiKey2, baseUrl2, model2, systemPrompt, userPrompt);
+      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
       raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
       let data = {};
       try {
@@ -1469,7 +1470,7 @@ server.registerTool(
         structuredContent: { ok: false, error: "No API key configured" }
       };
     }
-    const { provider: provider2, apiKey: apiKey2, baseUrl: baseUrl2, model: model2 } = llm;
+    const { provider, apiKey, baseUrl, model } = llm;
     const fwHints = {
       cypress: "Cypress: cy.get('[data-testid=...]'), cy.contains(), cy.get('button').filter(':visible')",
       playwright: `Playwright: page.getByRole(), page.getByTestId(), page.locator('button:has-text("...")')`,
@@ -1494,7 +1495,7 @@ C\xF3digo do teste:
 ${testCode ? testCode.slice(0, 6e3) : "N\xE3o dispon\xEDvel"}
 ---`;
     try {
-      let raw = await callLlmForExplanation(provider2, apiKey2, baseUrl2, model2, systemPrompt, userPrompt);
+      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
       raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
       let data = {};
       try {
@@ -1602,7 +1603,7 @@ server.registerTool(
         structuredContent: { ok: false, error: "No API key configured" }
       };
     }
-    const { provider: provider2, apiKey: apiKey2, baseUrl: baseUrl2, model: model2 } = llm;
+    const { provider, apiKey, baseUrl, model } = llm;
     const ext = path.extname(fullPath).toLowerCase();
     const lang = [".ts", ".tsx"].includes(ext) ? "TypeScript" : [".js", ".jsx"].includes(ext) ? "JavaScript" : [".py"].includes(ext) ? "Python" : "c\xF3digo";
     const systemPrompt = `Voc\xEA \xE9 um revisor de c\xF3digo experiente em QA e testes. Analise o arquivo e cada m\xE9todo/fun\xE7\xE3o, respondendo em JSON v\xE1lido (sem markdown) com a estrutura:
@@ -1645,7 +1646,7 @@ ${fileContent.slice(0, 18e3)}
 
 Analise cada m\xE9todo/fun\xE7\xE3o e retorne o JSON conforme especificado.`;
     try {
-      let raw = await callLlmForExplanation(provider2, apiKey2, baseUrl2, model2, systemPrompt, userPrompt);
+      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
       raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
       let data = {};
       try {

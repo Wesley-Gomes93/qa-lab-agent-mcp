@@ -1046,6 +1046,7 @@ server.registerTool(
         structuredContent: { ok: false, error: "No API key configured" },
       };
     }
+    const { provider, apiKey, baseUrl, model } = llm;
 
     const memory = loadProjectMemory();
     const memoryBlock = memory.flows?.length
@@ -1073,7 +1074,7 @@ Regras:
 - Código limpo. Retorne SOMENTE o código, sem markdown`;
 
     const userPrompt = `Contexto do projeto:
-${context.slice(0, 5000)}
+${contextWithMemory.slice(0, 5000)}
 
 Gere um teste para: ${request}
 Framework alvo: ${fw}${referenceBlock}`;
