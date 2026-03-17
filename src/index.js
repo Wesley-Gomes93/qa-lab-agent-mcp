@@ -180,8 +180,134 @@ function detectProjectStructure() {
 }
 
 // ============================================================================
+// PADRÕES UNIVERSAIS DE ARQUIVOS DE TESTE (qualquer framework)
+// ============================================================================
+
+const UNIVERSAL_TEST_PATTERNS = [
+  /\.(cy|spec|test)\.(js|ts|jsx|tsx)$/i,
+  /\.robot$/i,
+  /\.feature$/i,
+  /^(test_.*|.*_test)\.py$/i,
+  /\.steps?\.(js|ts|py)$/i,
+  /\.e2e\.(js|ts)$/i,
+  /\.it\.(js|ts)$/i,
+];
+
+function isTestFile(name) {
+  return UNIVERSAL_TEST_PATTERNS.some((re) => re.test(name));
+}
+
+function collectTestFiles(structure, options = {}) {
+  const { pattern, framework, maxContentFiles = 0 } = options;
+  const results = [];
+
+  for (const dir of structure.testDirs) {
+    const fullPath = path.join(PROJECT_ROOT, dir);
+    const walk = (p, base = "") => {
+      if (!fs.existsSync(p)) return;
+      const entries = fs.readdirSync(p, { withFileTypes: true });
+      for (const e of entries) {
+        const rel = base ? `${base}/${e.name}` : e.name;
+        if (e.isDirectory()) {
+          walk(path.join(p, e.name), rel);
+        } else if (e.isFile() && isTestFile(e.name)) {
+          const filePath = `${dir}/${rel}`;
+          if (pattern && !filePath.toLowerCase().includes(pattern.toLowerCase())) continue;
+          const inferredFw = inferFrameworkFromFile(e.name, structure);
+          if (framework && framework !== "all" && inferredFw !== framework && !matchesFramework(inferredFw, framework)) continue;
+          const entry = { path: filePath, inferredFramework: inferredFw };
+          if (maxContentFiles > 0 && results.length < maxContentFiles) {
+            try {
+              entry.content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), "utf8");
+            } catch {}
+          }
+          results.push(entry);
+        }
+      }
+    };
+    walk(fullPath);
+  }
+  return results;
+}
+
+function inferFrameworkFromFile(name, structure = {}) {
+  if (/\.cy\.(js|ts|jsx|tsx)/i.test(name)) return "cypress";
+  if (/\.spec\.(js|ts|jsx|tsx)/i.test(name)) {
+    if (structure?.testFrameworks?.includes("webdriverio")) return "webdriverio";
+    if (structure?.testFrameworks?.includes("appium")) return "appium";
+    return "playwright";
+  }
+  if (/\.test\.(js|ts|jsx|tsx)/i.test(name)) return structure?.testFrameworks?.includes("vitest") ? "vitest" : "jest";
+  if (/\.robot$/i.test(name)) return "robot";
+  if (/\.feature$/i.test(name)) return "behave";
+  if (/\.(py|steps?\.py)$/i.test(name) || /^(test_.*|.*_test)\.py$/i.test(name)) return "pytest";
+  if (/\.e2e\.(js|ts)/i.test(name)) return "playwright";
+  return "unknown";
+}
+
+function matchesFramework(inferred, requested) {
+  const aliases = { spec: ["playwright", "webdriverio", "appium"] };
+  if (inferred === requested) return true;
+  return aliases[inferred]?.includes(requested);
+}
+
+// ============================================================================
 // FERRAMENTAS GENÉRICAS
 // ============================================================================
+
+server.registerTool(
+  "read_file",
+  {
+    title: "Ler qualquer arquivo",
+    description: "Lê o conteúdo de QUALQUER arquivo do projeto por caminho. Use para specs, page objects, componentes, código fonte - qualquer formato.",
+    inputSchema: z.object({
+      path: z.string().describe("Caminho relativo ao projeto (ex: cypress/e2e/login.cy.js, src/pages/Login.tsx, tests/login.robot)."),
+      encoding: z.enum(["utf8", "utf-8"]).optional().describe("Encoding. Default: utf8"),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      content: z.string().optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async ({ path: filePath, encoding = "utf8" }) => {
+    const normalized = filePath.replace(/^\//, "").replace(/\\/g, "/");
+    const fullPath = path.join(PROJECT_ROOT, normalized);
+
+    if (!fullPath.startsWith(PROJECT_ROOT)) {
+      return {
+        content: [{ type: "text", text: "Caminho fora do projeto." }],
+        structuredContent: { ok: false, error: "Path outside project" },
+      };
+    }
+    if (!fs.existsSync(fullPath)) {
+      return {
+        content: [{ type: "text", text: `Arquivo não encontrado: ${normalized}` }],
+        structuredContent: { ok: false, error: "File not found" },
+      };
+    }
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) {
+      return {
+        content: [{ type: "text", text: "É um diretório. Use um caminho de arquivo." }],
+        structuredContent: { ok: false, error: "Is directory" },
+      };
+    }
+
+    try {
+      const content = fs.readFileSync(fullPath, encoding);
+      return {
+        content: [{ type: "text", text: content }],
+        structuredContent: { ok: true, content },
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Erro ao ler: ${err.message}` }],
+        structuredContent: { ok: false, error: err.message },
+      };
+    }
+  }
+);
 
 server.registerTool(
   "detect_project",
@@ -230,6 +356,7 @@ server.registerTool(
       ]).optional().describe("Framework específico ou 'npm' para npm test."),
       spec: z.string().optional().describe("Caminho do spec (ex: cypress/e2e/test.cy.js)."),
       suite: z.string().optional().describe("Suite ou pattern (ex: e2e, api)."),
+      explainOnFailure: z.boolean().optional().describe("Se true, quando falhar gera automaticamente: O que aconteceu, Por que falhou, O que fazer, Sugestão de correção. Requer API key."),
     }),
     outputSchema: z.object({
       status: z.enum(["passed", "failed", "not_found"]),
@@ -238,7 +365,7 @@ server.registerTool(
       runOutput: z.string().optional(),
     }),
   },
-  async ({ framework, spec, suite }) => {
+  async ({ framework, spec, suite, explainOnFailure }) => {
     const structure = detectProjectStructure();
     
     if (!structure.hasTests) {
@@ -359,6 +486,11 @@ server.registerTool(
       child.on("close", (code) => {
         const runOutput = [stdout, stderr].filter(Boolean).join("\n").trim();
         const passed = code === 0;
+        if (!passed && runOutput) {
+          try {
+            fs.writeFileSync(path.join(PROJECT_ROOT, ".qa-lab-last-failure.log"), runOutput, "utf8");
+          } catch {}
+        }
         resolve({
           content: [{ type: "text", text: passed ? "Testes executados com sucesso." : "Falha na execução dos testes." }],
           structuredContent: {
@@ -377,42 +509,41 @@ server.registerTool(
   "read_project",
   {
     title: "Ler estrutura do projeto",
-    description: "Lê package.json, detecta rotas (se backend), specs existentes e retorna contexto.",
-    inputSchema: z.object({}),
+    description: "Lê package.json, specs existentes (qualquer framework: Cypress, Playwright, WDIO, Robot, pytest, etc) e retorna contexto. Use includeContent para trazer código de exemplos.",
+    inputSchema: z.object({
+      includeContent: z.boolean().optional().describe("Se true, inclui conteúdo dos primeiros 3 arquivos de teste como referência. Default: false."),
+      maxFiles: z.number().optional().describe("Máximo de arquivos cujo conteúdo será lido. Default: 3."),
+    }),
     outputSchema: z.object({
       ok: z.boolean(),
       summary: z.string(),
       packageJson: z.object({}).passthrough().optional(),
       testFiles: z.array(z.string()).optional(),
+      testFilesWithContent: z.array(z.object({ path: z.string(), content: z.string() })).optional(),
     }),
   },
-  async () => {
+  async ({ includeContent = false, maxFiles = 3 } = {}) => {
     const structure = detectProjectStructure();
-    const testFiles = [];
+    const collected = collectTestFiles(structure, {
+      maxContentFiles: includeContent ? maxFiles : 0,
+    });
 
-    for (const dir of structure.testDirs) {
-      const fullPath = path.join(PROJECT_ROOT, dir);
-      const walk = (p, base = "") => {
-        if (!fs.existsSync(p)) return;
-        const entries = fs.readdirSync(p, { withFileTypes: true });
-        for (const e of entries) {
-          const rel = base ? `${base}/${e.name}` : e.name;
-          if (e.isDirectory()) {
-            walk(path.join(p, e.name), rel);
-          } else if (e.isFile() && /\.(cy|spec|test)\.(js|ts)$/.test(e.name)) {
-            testFiles.push(`${dir}/${rel}`);
-          }
-        }
-      };
-      walk(fullPath);
-    }
+    const testFiles = collected.map((e) => e.path);
+    const testFilesWithContent = includeContent
+      ? collected.filter((e) => e.content).map((e) => ({ path: e.path, content: e.content }))
+      : undefined;
 
     const summary = [
       `Frameworks: ${structure.testFrameworks.join(", ") || "nenhum"}`,
-      `Arquivos de teste: ${testFiles.length}`,
+      `Arquivos de teste: ${testFiles.length} (qualquer framework)`,
       `Backend: ${structure.backendDir || "não detectado"}`,
       `Frontend: ${structure.frontendDir || "não detectado"}`,
-    ].join("\n");
+      includeContent && testFilesWithContent?.length
+        ? `Conteúdo incluído: ${testFilesWithContent.length} arquivo(s) como referência`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     return {
       content: [{ type: "text", text: summary }],
@@ -420,7 +551,8 @@ server.registerTool(
         ok: true,
         summary,
         packageJson: structure.packageJson,
-        testFiles: testFiles.slice(0, 50),
+        testFiles: testFiles.slice(0, 100),
+        testFilesWithContent,
         structure,
       },
     };
@@ -430,15 +562,17 @@ server.registerTool(
 server.registerTool(
   "generate_tests",
   {
-    title: "Gerar testes com LLM",
-    description: "Gera spec de teste usando LLM (requer GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY).",
+    title: "Gerar ou traduzir testes com LLM",
+    description: "Gera spec em QUALQUER framework. Aceita referência de outro framework: leia com read_file e passe em referenceCode. Traduz automaticamente (ex: Robot→Playwright, Cypress→WDIO).",
     inputSchema: z.object({
-      context: z.string().describe("Contexto do projeto (resultado de read_project ou descrição)."),
-      request: z.string().describe("O que testar (ex: 'login flow', 'API healthcheck')."),
+      context: z.string().describe("Contexto do projeto (read_project) ou descrição."),
+      request: z.string().describe("O que testar (ex: 'logout flow', 'teste de login') ou 'traduzir o teste abaixo'."),
       framework: z.enum([
         "cypress", "playwright", "webdriverio", "jest", "vitest", "mocha",
-        "appium", "robot", "pytest", "supertest"
-      ]).optional().describe("Framework alvo."),
+        "appium", "robot", "pytest", "supertest", "behave", "detox"
+      ]).optional().describe("Framework alvo (detectado do projeto se omitido)."),
+      referenceCode: z.string().optional().describe("Código de referência em QUALQUER framework (Cypress, Robot, WDIO, etc). O LLM traduz/adapta para o framework alvo."),
+      referencePaths: z.array(z.string()).optional().describe("Caminhos de arquivos para ler como referência. O agente lê e usa como padrão."),
     }),
     outputSchema: z.object({
       ok: z.boolean(),
@@ -447,9 +581,23 @@ server.registerTool(
       error: z.string().optional(),
     }),
   },
-  async ({ context, request, framework }) => {
+  async ({ context, request, framework, referenceCode, referencePaths }) => {
     const structure = detectProjectStructure();
     const fw = framework || structure.testFrameworks[0] || "cypress";
+
+    let referenceBlock = "";
+    if (referenceCode) referenceBlock += `\n\n--- CÓDIGO DE REFERÊNCIA (use como padrão, traduza/adapte para ${fw}) ---\n${referenceCode.slice(0, 8000)}`;
+    if (referencePaths?.length) {
+      for (const p of referencePaths.slice(0, 5)) {
+        const full = path.join(PROJECT_ROOT, p.replace(/^\//, "").replace(/\\/g, "/"));
+        if (fs.existsSync(full)) {
+          try {
+            const content = fs.readFileSync(full, "utf8");
+            referenceBlock += `\n\n--- Arquivo: ${p} ---\n${content.slice(0, 6000)}`;
+          } catch {}
+        }
+      }
+    }
 
     const GROQ_KEY = process.env.GROQ_API_KEY;
     const GEMINI_KEY = process.env.GEMINI_API_KEY;
@@ -475,20 +623,30 @@ server.registerTool(
       ? "gemini-1.5-flash"
       : "gpt-4o-mini";
 
-    const systemPrompt = `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
+    const hasReference = Boolean(referenceBlock?.trim());
+    const systemPrompt = hasReference
+      ? `Você é um engenheiro de QA. TRADUZA/ADAPTE o código de referência para o framework ${fw}.
+O código de referência pode estar em QUALQUER framework (Cypress, Robot, Playwright, WDIO, Appium, pytest, etc).
+- Mantenha a MESMA lógica e fluxo de teste
+- Traduza seletores, comandos e asserções para ${fw}
+- Use Page Objects se o projeto já usa
+- Retorne SOMENTE o código, sem markdown`
+      : `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
 Framework: ${fw}
 Regras:
-- Para Cypress: use cy.request() para API, cy.visit() para UI
-- Para Playwright: use test.describe() e test(), fixture { request } para API
-- Para Jest: use describe() e test(), fetch() ou axios para API
-- Código limpo, sem comentários excessivos
-- Retorne SOMENTE o código JavaScript, sem markdown`;
+- Cypress: cy.request(), cy.visit(), cy.get()
+- Playwright: test(), test.describe(), page.goto(), page.locator()
+- WebdriverIO/Appium: describe(), it(), $(), browser.$
+- Jest/Vitest: describe(), test(), expect()
+- Robot: Keywords, [Tags], Steps
+- pytest: def test_*, assert, fixtures
+- Código limpo. Retorne SOMENTE o código, sem markdown`;
 
     const userPrompt = `Contexto do projeto:
 ${context.slice(0, 5000)}
 
 Gere um teste para: ${request}
-Framework: ${fw}`;
+Framework alvo: ${fw}${referenceBlock}`;
 
     try {
       let specContent;
@@ -546,15 +704,48 @@ Framework: ${fw}`;
   }
 );
 
+function getExtensionAndBaseDir(fw, structure) {
+  const extMap = {
+    cypress: ".cy.js",
+    playwright: ".spec.js",
+    jest: ".test.js",
+    vitest: ".test.js",
+    mocha: ".test.js",
+    webdriverio: ".spec.js",
+    appium: ".spec.js",
+    detox: ".e2e.js",
+    robot: ".robot",
+    pytest: "_test.py",
+    behave: ".feature",
+    supertest: ".test.js",
+    pactum: ".test.js",
+  };
+  const ext = extMap[fw] || ".spec.js";
+
+  const baseMap = {
+    cypress: structure.testDirs.includes("cypress") ? "cypress" : structure.testDirs[0] || "tests",
+    playwright: structure.testDirs.includes("playwright") ? "playwright" : structure.testDirs[0] || "tests",
+    webdriverio: structure.testDirs.includes("specs") ? "specs" : structure.testDirs[0] || "tests",
+    appium: structure.testDirs.includes("specs") ? "specs" : structure.testDirs[0] || "tests",
+    robot: structure.testDirs.includes("robot") ? "robot" : structure.testDirs[0] || "tests",
+    behave: structure.testDirs.includes("features") ? "features" : structure.testDirs[0] || "tests",
+  };
+  const baseDir = path.join(PROJECT_ROOT, baseMap[fw] || structure.testDirs[0] || "tests");
+  return { ext, baseDir };
+}
+
 server.registerTool(
   "write_test",
   {
     title: "Escrever arquivo de teste",
-    description: "Grava spec no disco. Detecta automaticamente a pasta correta.",
+    description: "Grava spec no disco. Suporta QUALQUER framework (Cypress, Playwright, WDIO, Appium, Robot, pytest, etc.). Detecta automaticamente pasta e extensão.",
     inputSchema: z.object({
-      name: z.string().describe("Nome do arquivo (ex: login-test)."),
+      name: z.string().describe("Nome do arquivo (ex: login-test, logout_spec)."),
       content: z.string().describe("Conteúdo do spec."),
-      framework: z.enum(["cypress", "playwright", "jest"]).optional().describe("Framework (detectado automaticamente se omitido)."),
+      framework: z.enum([
+        "cypress", "playwright", "jest", "vitest", "mocha", "webdriverio",
+        "appium", "detox", "robot", "pytest", "behave", "supertest"
+      ]).optional().describe("Framework (detectado automaticamente se omitido)."),
       subdir: z.string().optional().describe("Subpasta (ex: e2e, api). Default: raiz da pasta de testes."),
     }),
     outputSchema: z.object({
@@ -574,26 +765,14 @@ server.registerTool(
       };
     }
 
-    const ext = fw === "cypress" ? ".cy.js" : fw === "playwright" ? ".spec.js" : ".test.js";
-    const safeName = name.replace(/[^a-z0-9-]/gi, "-").replace(/-+/g, "-").replace(/\.(cy|spec|test)\.js$/i, "");
-    const fileName = `${safeName}${ext}`;
-
-    let baseDir;
-    if (fw === "cypress") {
-      baseDir = structure.testDirs.includes("cypress")
-        ? path.join(PROJECT_ROOT, "cypress")
-        : structure.testDirs.includes("tests")
-        ? path.join(PROJECT_ROOT, "tests", "cypress")
-        : path.join(PROJECT_ROOT, structure.testDirs[0] || "tests");
-    } else if (fw === "playwright") {
-      baseDir = structure.testDirs.includes("playwright")
-        ? path.join(PROJECT_ROOT, "playwright")
-        : structure.testDirs.includes("tests")
-        ? path.join(PROJECT_ROOT, "tests", "playwright")
-        : path.join(PROJECT_ROOT, structure.testDirs[0] || "tests");
-    } else {
-      baseDir = path.join(PROJECT_ROOT, structure.testDirs[0] || "tests");
-    }
+    const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
+    const safeName = name
+      .replace(/[^a-z0-9-_]/gi, "-")
+      .replace(/-+/g, "-")
+      .replace(/_+/g, "_")
+      .replace(/\.(cy|spec|test|robot|feature|py)\.?(js|ts|py)?$/i, "")
+      .replace(/^[-_]+|[-_]+$/g, "");
+    const fileName = ext.startsWith("_") ? `${safeName}${ext}` : `${safeName}${ext}`;
 
     const targetDir = subdir ? path.join(baseDir, subdir) : baseDir;
     const filePath = path.join(targetDir, fileName);
@@ -657,6 +836,312 @@ server.registerTool(
       content: [{ type: "text", text: summary }],
       structuredContent: { ok: true, summary, failures: failures.length ? failures : undefined },
     };
+  }
+);
+
+// ============================================================================
+// POR QUE FALHOU? - Explicação de falhas para juniores (escalável)
+// ============================================================================
+
+function formatFailureExplanation(data) {
+  const lines = [
+    "## O que aconteceu",
+    "",
+    data.oQueAconteceu || "",
+    "",
+    "## Por que provavelmente falhou",
+    "",
+    ...(Array.isArray(data.porQueProvavelmenteFalhou)
+      ? data.porQueProvavelmenteFalhou.map((s) => `• ${s}`)
+      : [data.porQueProvavelmenteFalhou || ""]),
+    "",
+    "## O que fazer agora",
+    "",
+    ...(Array.isArray(data.oQueFazerAgora)
+      ? data.oQueFazerAgora.map((s, i) => `${i + 1}. ${s}`)
+      : [data.oQueFazerAgora || ""]),
+  ];
+  if (data.sugestaoCorrecao) {
+    lines.push("", "## Sugestão de correção", "", "```" + (data.framework || "js"), data.sugestaoCorrecao, "```");
+  }
+  if (data.conceito) {
+    lines.push("", "## Conceito", "", data.conceito);
+  }
+  return lines.filter(Boolean).join("\n");
+}
+
+async function callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt) {
+  if (provider === "gemini") {
+    const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 4096 },
+      }),
+    });
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 4096,
+    }),
+  });
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+/** Gera explicação de falha (o que aconteceu, por que, o que fazer, sugestão). Usado por por_que_falhou e run_tests_and_explain. */
+async function generateFailureExplanation(resolvedOutput, testFilePath = null) {
+  const structure = detectProjectStructure();
+  const fw = structure.testFrameworks[0] || "unknown";
+
+  let testCode = "";
+  if (testFilePath) {
+    const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
+    const fullPath = path.join(PROJECT_ROOT, normalized);
+    if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+      try {
+        testCode = fs.readFileSync(fullPath, "utf8");
+      } catch {}
+    }
+  }
+
+  const GROQ_KEY = process.env.GROQ_API_KEY;
+  const GEMINI_KEY = process.env.GEMINI_API_KEY;
+  const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
+  if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+    return { ok: false, error: "No API key", formattedText: null };
+  }
+
+  const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
+  const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
+  const baseUrl = provider === "groq"
+    ? "https://api.groq.com/openai/v1"
+    : provider === "gemini"
+      ? "https://generativelanguage.googleapis.com/v1beta"
+      : "https://api.openai.com/v1";
+  const model = provider === "groq"
+    ? "llama-3.3-70b-versatile"
+    : provider === "gemini"
+      ? "gemini-1.5-flash"
+      : "gpt-4o-mini";
+
+  const fwHints = {
+    webdriverio: "WebdriverIO (describe/it, $, browser.$)",
+    appium: "Appium/WebdriverIO (mobile, $, browser.$)",
+    playwright: "Playwright (test, page, locator)",
+    cypress: "Cypress (cy.get, cy.click)",
+    jest: "Jest (describe, test, expect)",
+    vitest: "Vitest (describe, test, expect)",
+    robot: "Robot Framework",
+    pytest: "pytest",
+  };
+
+  const systemPrompt = `Você é um mentor de QA. Analise o output de falha e responda em JSON (apenas o JSON, sem markdown) com as chaves:
+- oQueAconteceu: string (explicação em português do que aconteceu, simples)
+- porQueProvavelmenteFalhou: array de strings (lista de possíveis causas, uma por item)
+- oQueFazerAgora: array de strings (passos numerados do que fazer)
+- sugestaoCorrecao: string ou null (código de correção se aplicável, no formato do framework)
+- conceito: string ou null (ex: "Flaky test = teste intermitente. Geralmente por timing ou seletores frágeis.")
+- framework: string (framework do projeto)
+
+Framework do projeto: ${fw}. ${fwHints[fw] || ""}
+Responda APENAS com o JSON válido, sem texto antes ou depois.`;
+
+  const userPrompt = `Output do terminal/log (teste falhou):
+---
+${resolvedOutput.slice(0, 12000)}
+---
+${testCode ? `\nCódigo do teste que falhou:\n---\n${testCode.slice(0, 6000)}\n---` : ""}`;
+
+  try {
+    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    let data = {};
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = {
+        oQueAconteceu: raw.slice(0, 500) || "Não foi possível parsear a resposta.",
+        porQueProvavelmenteFalhou: [],
+        oQueFazerAgora: [],
+        sugestaoCorrecao: null,
+        conceito: null,
+        framework: fw,
+      };
+    }
+    data.framework = data.framework || fw;
+    const formattedText = formatFailureExplanation(data);
+    return { ok: true, formattedText, structuredContent: data };
+  } catch (err) {
+    return { ok: false, error: err.message, formattedText: null };
+  }
+}
+
+server.registerTool(
+  "por_que_falhou",
+  {
+    title: "Por que falhou? Explicação para juniores",
+    description: "Traduz stack trace em explicação humana. Recebe output do terminal/log, lê o projeto e o teste (se path dado), e retorna: O que aconteceu, Por que falhou, O que fazer, Sugestão de correção, Conceito. Escalável e procedural.",
+    inputSchema: z.object({
+      errorOutput: z.string().optional().describe("Output do terminal quando o teste falhou. Se vazio, lê automaticamente de .qa-lab-last-failure.log (capturado pelo run_tests). Cole aqui ou deixe vazio para usar última falha."),
+      testFilePath: z.string().optional().describe("Caminho do arquivo de teste que falhou (ex: specs/login.spec.js). Se informado, o agente lê o código e dá sugestão mais precisa."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      oQueAconteceu: z.string().optional(),
+      porQueProvavelmenteFalhou: z.array(z.string()).optional(),
+      oQueFazerAgora: z.array(z.string()).optional(),
+      sugestaoCorrecao: z.string().optional(),
+      conceito: z.string().optional(),
+      framework: z.string().optional(),
+      formattedText: z.string().optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async ({ errorOutput, testFilePath }) => {
+    const structure = detectProjectStructure();
+    const fw = structure.testFrameworks[0] || "unknown";
+
+    let resolvedOutput = errorOutput?.trim() || "";
+    if (!resolvedOutput) {
+      const lastFailurePath = path.join(PROJECT_ROOT, ".qa-lab-last-failure.log");
+      if (fs.existsSync(lastFailurePath)) {
+        try {
+          resolvedOutput = fs.readFileSync(lastFailurePath, "utf8");
+        } catch {}
+      }
+    }
+    if (!resolvedOutput) {
+      return {
+        content: [{
+          type: "text",
+          text: "Nenhum output de erro fornecido e nenhuma falha recente capturada.\n\nComo usar:\n1. Rode os testes (run_tests) – se falhar, a saída é salva automaticamente.\n2. Ou cole aqui o output do terminal quando o teste falhou.\n3. Depois peça: 'Por que falhou?' ou chame por_que_falhou.",
+        }],
+        structuredContent: { ok: false, error: "No error output" },
+      };
+    }
+
+    let testCode = "";
+    if (testFilePath) {
+      const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
+      const fullPath = path.join(PROJECT_ROOT, normalized);
+      if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+        try {
+          testCode = fs.readFileSync(fullPath, "utf8");
+        } catch {}
+      }
+    }
+
+    const GROQ_KEY = process.env.GROQ_API_KEY;
+    const GEMINI_KEY = process.env.GEMINI_API_KEY;
+    const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
+
+    if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+      return {
+        content: [{
+          type: "text",
+          text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env do projeto para usar a explicação com LLM.",
+        }],
+        structuredContent: { ok: false, error: "No API key configured" },
+      };
+    }
+
+    const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
+    const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
+    const baseUrl = provider === "groq"
+      ? "https://api.groq.com/openai/v1"
+      : provider === "gemini"
+        ? "https://generativelanguage.googleapis.com/v1beta"
+        : "https://api.openai.com/v1";
+    const model = provider === "groq"
+      ? "llama-3.3-70b-versatile"
+      : provider === "gemini"
+        ? "gemini-1.5-flash"
+        : "gpt-4o-mini";
+
+    const fwHints = {
+      webdriverio: "WebdriverIO (describe/it, $, browser.$)",
+      appium: "Appium/WebdriverIO (mobile, $, browser.$)",
+      playwright: "Playwright (test, page, locator)",
+      cypress: "Cypress (cy.get, cy.click)",
+      jest: "Jest (describe, test, expect)",
+      vitest: "Vitest (describe, test, expect)",
+      robot: "Robot Framework",
+      pytest: "pytest",
+    };
+
+    const systemPrompt = `Você é um mentor de QA. Analise o output de falha e responda em JSON (apenas o JSON, sem markdown) com as chaves:
+- oQueAconteceu: string (explicação em português do que aconteceu, simples)
+- porQueProvavelmenteFalhou: array de strings (lista de possíveis causas, uma por item)
+- oQueFazerAgora: array de strings (passos numerados do que fazer)
+- sugestaoCorrecao: string ou null (código de correção se aplicável, no formato do framework)
+- conceito: string ou null (ex: "Flaky test = teste intermitente. Geralmente por timing ou seletores frágeis.")
+- framework: string (framework do projeto)
+
+Framework do projeto: ${fw}. ${fwHints[fw] || ""}
+Responda APENAS com o JSON válido, sem texto antes ou depois.`;
+
+    const userPrompt = `Output do terminal/log (teste falhou):
+---
+${resolvedOutput.slice(0, 12000)}
+---
+${testCode ? `\nCódigo do teste que falhou:\n---\n${testCode.slice(0, 6000)}\n---` : ""}`;
+
+    try {
+      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+
+      let data = {};
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = {
+          oQueAconteceu: raw.slice(0, 500) || "Não foi possível parsear a resposta.",
+          porQueProvavelmenteFalhou: [],
+          oQueFazerAgora: [],
+          sugestaoCorrecao: null,
+          conceito: null,
+          framework: fw,
+        };
+      }
+
+      data.framework = data.framework || fw;
+      const formattedText = formatFailureExplanation(data);
+
+      return {
+        content: [{ type: "text", text: formattedText }],
+        structuredContent: {
+          ok: true,
+          oQueAconteceu: data.oQueAconteceu,
+          porQueProvavelmenteFalhou: data.porQueProvavelmenteFalhou,
+          oQueFazerAgora: data.oQueFazerAgora,
+          sugestaoCorrecao: data.sugestaoCorrecao ?? null,
+          conceito: data.conceito ?? null,
+          framework: data.framework,
+          formattedText,
+        },
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Erro ao analisar: ${err.message}` }],
+        structuredContent: { ok: false, error: err.message },
+      };
+    }
   }
 );
 
@@ -791,9 +1276,11 @@ server.registerTool(
   "list_test_files",
   {
     title: "Listar arquivos de teste",
-    description: "Lista todos os arquivos de teste do projeto (filtro por framework, suite, etc.).",
+    description: "Lista TODOS os arquivos de teste (qualquer framework: Cypress, Playwright, WDIO, Robot, pytest, Behave, etc.) com filtro opcional.",
     inputSchema: z.object({
-      framework: z.enum(["cypress", "playwright", "jest", "all"]).optional().describe("Filtrar por framework."),
+      framework: z.enum([
+        "cypress", "playwright", "jest", "webdriverio", "appium", "robot", "pytest", "behave", "detox", "all"
+      ]).optional().describe("Filtrar por framework. Default: all."),
       pattern: z.string().optional().describe("Pattern para filtrar (ex: 'login', 'api')."),
     }),
     outputSchema: z.object({
@@ -802,40 +1289,12 @@ server.registerTool(
       total: z.number(),
     }),
   },
-  async ({ framework, pattern }) => {
+  async ({ framework = "all", pattern } = {}) => {
     const structure = detectProjectStructure();
-    const allFiles = [];
+    const collected = collectTestFiles(structure, { framework, pattern });
+    const allFiles = collected.map((e) => e.path);
 
-    for (const dir of structure.testDirs) {
-      const fullPath = path.join(PROJECT_ROOT, dir);
-      const walk = (p, base = "") => {
-        if (!fs.existsSync(p)) return;
-        const entries = fs.readdirSync(p, { withFileTypes: true });
-        for (const e of entries) {
-          const rel = base ? `${base}/${e.name}` : e.name;
-          if (e.isDirectory()) {
-            walk(path.join(p, e.name), rel);
-          } else if (e.isFile()) {
-            const isCypress = e.name.endsWith(".cy.js") || e.name.endsWith(".cy.ts");
-            const isPlaywright = e.name.endsWith(".spec.js") || e.name.endsWith(".spec.ts");
-            const isJest = e.name.endsWith(".test.js") || e.name.endsWith(".test.ts");
-            
-            if (isCypress || isPlaywright || isJest) {
-              const fw = isCypress ? "cypress" : isPlaywright ? "playwright" : "jest";
-              if (!framework || framework === "all" || framework === fw) {
-                const filePath = `${dir}/${rel}`;
-                if (!pattern || filePath.toLowerCase().includes(pattern.toLowerCase())) {
-                  allFiles.push(filePath);
-                }
-              }
-            }
-          }
-        }
-      };
-      walk(fullPath);
-    }
-
-    const summary = `Encontrados ${allFiles.length} arquivo(s) de teste.`;
+    const summary = `Encontrados ${allFiles.length} arquivo(s) de teste (qualquer framework).`;
 
     return {
       content: [{ type: "text", text: `${summary}\n\n${allFiles.slice(0, 50).join("\n")}` }],

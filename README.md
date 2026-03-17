@@ -2,6 +2,18 @@
 
 MCP server + AI agents para QA automation em **qualquer projeto**. Detecta automaticamente frameworks de teste e estrutura do projeto.
 
+## 📚 Documentação Rápida
+
+| Guia | Descrição |
+|------|-----------|
+| 🚀 **[Quick Start](QUICKSTART.md)** | Instale em 2 minutos e comece a usar |
+| 📖 **[Como Usar](COMO_USAR.md)** | Guia completo de uso com exemplos |
+| 🧪 **[Teste Comigo](TESTE_COMIGO.md)** | Roteiro para testar e dar feedback |
+| 🔧 **[Instalação](INSTALL.md)** | Opções detalhadas de instalação |
+| ⚙️ **[Setup Cursor](CURSOR_SETUP.md)** | Configuração passo a passo |
+| 🚨 **[Troubleshooting](TROUBLESHOOTING.md)** | Solução de problemas |
+| 🎯 **[Frameworks](FRAMEWORKS.md)** | Frameworks suportados |
+
 ## Features
 
 - **Detecção automática** de frameworks:
@@ -20,7 +32,41 @@ MCP server + AI agents para QA automation em **qualquer projeto**. Detecta autom
 
 ## Instalação e Uso no Cursor
 
-### Opção 1: Build Local (Recomendado para desenvolvimento)
+### 🚀 Instalação Rápida (Recomendado)
+
+**1. Configure o MCP no Cursor:**
+
+Edite ou crie o arquivo `~/.cursor/mcp.json`:
+
+```bash
+mkdir -p ~/.cursor
+nano ~/.cursor/mcp.json
+```
+
+**2. Adicione a configuração:**
+
+```json
+{
+  "mcpServers": {
+    "qa-lab-agent": {
+      "command": "npx",
+      "args": ["-y", "mcp-lab-agent"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
+```
+
+**3. Reinicie o Cursor**
+
+**4. Pronto!** Abra qualquer projeto e use normalmente no chat.
+
+---
+
+### 📦 Outras Opções de Instalação
+
+<details>
+<summary>Opção 1: Build Local (para desenvolvimento)</summary>
 
 ```bash
 # Clone e instale
@@ -28,17 +74,14 @@ git clone https://github.com/Wesley-Gomes93/mcp-lab-agent
 cd mcp-lab-agent
 npm install
 npm run build
-
-# Configure no ~/.cursor/mcp.json
-mkdir -p ~/.cursor
 ```
 
-Adicione em `~/.cursor/mcp.json`:
+Configure no `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "qa-lab": {
+    "qa-lab-agent": {
       "command": "node",
       "args": ["/caminho/completo/para/mcp-lab-agent/dist/index.js"],
       "cwd": "${workspaceFolder}"
@@ -47,7 +90,12 @@ Adicione em `~/.cursor/mcp.json`:
 }
 ```
 
-### Opção 2: Instalação Global (Requer sudo)
+**Nota:** Substitua `/caminho/completo/para/mcp-lab-agent` pelo caminho real no seu sistema.
+
+</details>
+
+<details>
+<summary>Opção 2: Instalação Global com npm link</summary>
 
 ```bash
 cd mcp-lab-agent
@@ -59,7 +107,7 @@ Configure no `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "qa-lab": {
+    "qa-lab-agent": {
       "command": "mcp-lab-agent",
       "cwd": "${workspaceFolder}"
     }
@@ -67,21 +115,7 @@ Configure no `~/.cursor/mcp.json`:
 }
 ```
 
-### Opção 3: Via npm (Após publicar)
-
-```json
-{
-  "mcpServers": {
-    "qa-lab": {
-      "command": "npx",
-      "args": ["-y", "mcp-lab-agent"],
-      "cwd": "${workspaceFolder}"
-    }
-  }
-}
-```
-
-**Reinicie o Cursor** e abra qualquer projeto. O MCP detecta automaticamente a estrutura.
+</details>
 
 ## Ferramentas disponíveis
 
@@ -117,40 +151,68 @@ Para usar `generate_tests`, configure no `.env` do projeto:
 - **GEMINI_API_KEY** — Google Gemini (gratuito): https://aistudio.google.com/apikey
 - **OPENAI_API_KEY** — OpenAI (pago): https://platform.openai.com/api-keys
 
-## Exemplo de uso no Cursor
+## Como Usar
 
-### Workflow básico
+### 💬 Conversação Natural
 
-1. Abra seu projeto no Cursor
-2. Configure o MCP conforme acima
-3. Reinicie o Cursor
-4. No chat: "Detecte a estrutura do meu projeto" → usa `detect_project`
-5. "Gere um teste para o login" → usa `generate_tests` + `write_test`
-6. "Rode os testes" → usa `run_tests`
+**Você não precisa saber comandos especiais!** Apenas converse naturalmente com o Cursor:
 
-### Workflows avançados (v2.0)
-
-**Análise e correção de falhas:**
 ```
-1. "Rode os testes" → run_tests
-2. "Analise as falhas" → analyze_failures
-3. "Sugira correções" → suggest_fix
-4. "Crie um bug report" → create_bug_report
+"Detecte a estrutura do meu projeto"
+"Gere um teste para o fluxo de login"
+"Rode os testes"
+"Analise as falhas e sugira correções"
+"Crie um bug report das falhas"
 ```
 
-**Setup e manutenção:**
+O Cursor **automaticamente** identifica quando usar as ferramentas do MCP. Você não precisa mencionar nomes de ferramentas ou fazer configurações especiais.
+
+### 🎯 Exemplos Práticos
+
+**Começando em um projeto novo:**
 ```
-- "Liste todos os testes de Cypress" → list_test_files
-- "Rode o linter com auto-fix" → run_linter
-- "Instale as dependências" → install_dependencies
-- "Gere coverage dos testes" → get_test_coverage
+Você: "Quais frameworks de teste estão instalados aqui?"
+Cursor: [usa detect_project automaticamente]
+
+Você: "Gere um teste E2E para o cadastro de usuários"
+Cursor: [usa generate_tests + write_test]
+
+Você: "Rode os testes"
+Cursor: [usa run_tests]
 ```
 
-**Criação rápida de testes:**
+**Analisando falhas:**
 ```
-- "Crie um template de teste de API para Playwright" → create_test_template
-- "Gere um teste de UI para Cypress" → create_test_template
+Você: "Os testes falharam, me ajude a entender o que aconteceu"
+Cursor: [usa analyze_failures + suggest_fix]
+
+Você: "Crie um relatório dessas falhas"
+Cursor: [usa create_bug_report]
 ```
+
+**Manutenção do projeto:**
+```
+Você: "Liste todos os testes de Cypress"
+Cursor: [usa list_test_files]
+
+Você: "Rode o linter e corrija os problemas"
+Cursor: [usa run_linter com auto-fix]
+
+Você: "Gere um relatório de cobertura"
+Cursor: [usa get_test_coverage]
+```
+
+### 🔧 Ferramentas Disponíveis (para referência)
+
+Você não precisa chamar essas ferramentas diretamente, mas é útil saber o que está disponível:
+
+| Categoria | Ferramentas |
+|-----------|-------------|
+| **Detecção** | `detect_project`, `read_project`, `list_test_files` |
+| **Execução** | `run_tests`, `watch_tests`, `get_test_coverage` |
+| **Geração** | `generate_tests`, `write_test`, `create_test_template` |
+| **Análise** | `analyze_failures`, `suggest_fix`, `create_bug_report` |
+| **Manutenção** | `run_linter`, `install_dependencies` |
 
 ## Publicar no npm
 
