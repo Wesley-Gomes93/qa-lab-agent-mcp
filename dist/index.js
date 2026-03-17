@@ -80,6 +80,22 @@ function detectProjectStructure() {
       structure.testFrameworks.push("pactum");
       structure.hasTests = true;
     }
+    if (deps.testcafe || deps["testcafe"]) {
+      structure.testFrameworks.push("testcafe");
+      structure.hasTests = true;
+    }
+    if (deps.nightwatch || deps["nightwatch"]) {
+      structure.testFrameworks.push("nightwatch");
+      structure.hasTests = true;
+    }
+    if (deps.puppeteer) {
+      structure.testFrameworks.push("puppeteer");
+      structure.hasTests = true;
+    }
+    if (deps.codeceptjs || deps["codeceptjs"]) {
+      structure.testFrameworks.push("codeceptjs");
+      structure.hasTests = true;
+    }
     if (deps.express || deps.fastify || deps["@nestjs/core"] || deps.koa) {
       structure.hasBackend = true;
     }
@@ -123,12 +139,74 @@ function detectProjectStructure() {
     "features",
     "scenarios",
     "mobile",
-    "api"
+    "api",
+    // Monorepo: subprojetos por framework
+    "playwright-js",
+    "puppeteer-js",
+    "testcafe-js",
+    "wdio-webdriver-io",
+    "nightwatch-js",
+    "codeceptjs",
+    "robot-framework",
+    "selenium-python"
   ];
   for (const dir of commonTestDirs) {
     const fullPath = path.join(PROJECT_ROOT, dir);
-    if (fs.existsSync(fullPath)) {
+    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
       structure.testDirs.push(dir);
+    }
+  }
+  const skipDirs = ["node_modules", ".git", "dist", "build", ".next", ".venv"];
+  try {
+    const rootEntries = fs.readdirSync(PROJECT_ROOT, { withFileTypes: true });
+    for (const e of rootEntries) {
+      if (!e.isDirectory() || skipDirs.includes(e.name)) continue;
+      const subPath = path.join(PROJECT_ROOT, e.name);
+      if (structure.testDirs.includes(e.name)) continue;
+      const hasPkg = fs.existsSync(path.join(subPath, "package.json"));
+      const hasTests = fs.existsSync(path.join(subPath, "tests")) || fs.existsSync(path.join(subPath, "test")) || fs.existsSync(path.join(subPath, "e2e")) || fs.existsSync(path.join(subPath, "__tests__")) || fs.existsSync(path.join(subPath, "specs"));
+      if (hasPkg || hasTests) {
+        structure.testDirs.push(e.name);
+      }
+    }
+  } catch {
+  }
+  for (const dir of structure.testDirs) {
+    const subPkg = path.join(PROJECT_ROOT, dir, "package.json");
+    if (!fs.existsSync(subPkg)) continue;
+    try {
+      const sub = JSON.parse(fs.readFileSync(subPkg, "utf8"));
+      const subDeps = { ...sub.dependencies || {}, ...sub.devDependencies || {} };
+      const toAdd = [];
+      if (subDeps.cypress && !structure.testFrameworks.includes("cypress")) toAdd.push("cypress");
+      if ((subDeps["@playwright/test"] || subDeps.playwright) && !structure.testFrameworks.includes("playwright")) toAdd.push("playwright");
+      if ((subDeps.webdriverio || subDeps["@wdio/cli"]) && !structure.testFrameworks.includes("webdriverio")) toAdd.push("webdriverio");
+      if (subDeps.testcafe && !structure.testFrameworks.includes("testcafe")) toAdd.push("testcafe");
+      if (subDeps.nightwatch && !structure.testFrameworks.includes("nightwatch")) toAdd.push("nightwatch");
+      if (subDeps.puppeteer && !structure.testFrameworks.includes("puppeteer")) toAdd.push("puppeteer");
+      if (subDeps.codeceptjs && !structure.testFrameworks.includes("codeceptjs")) toAdd.push("codeceptjs");
+      if (subDeps.jest && !structure.testFrameworks.includes("jest")) toAdd.push("jest");
+      toAdd.forEach((fw) => {
+        structure.testFrameworks.push(fw);
+        structure.hasTests = true;
+      });
+    } catch {
+    }
+  }
+  for (const dir of structure.testDirs) {
+    const reqPath = path.join(PROJECT_ROOT, dir, "requirements.txt");
+    if (!fs.existsSync(reqPath)) continue;
+    try {
+      const req = fs.readFileSync(reqPath, "utf8");
+      if (/robotframework/i.test(req) && !structure.testFrameworks.includes("robot")) {
+        structure.testFrameworks.push("robot");
+        structure.hasTests = true;
+      }
+      if (/pytest|selenium/i.test(req) && !structure.testFrameworks.includes("pytest")) {
+        structure.testFrameworks.push("pytest");
+        structure.hasTests = true;
+      }
+    } catch {
     }
   }
   const commonBackendDirs = ["backend", "server", "api", "src"];
@@ -155,6 +233,8 @@ function detectProjectStructure() {
 }
 var UNIVERSAL_TEST_PATTERNS = [
   /\.(cy|spec|test)\.(js|ts|jsx|tsx)$/i,
+  /_test\.(js|ts)$/i,
+  // CodeceptJS
   /\.robot$/i,
   /\.feature$/i,
   /^(test_.*|.*_test)\.py$/i,
@@ -176,6 +256,7 @@ function collectTestFiles(structure, options = {}) {
       for (const e of entries) {
         const rel = base ? `${base}/${e.name}` : e.name;
         if (e.isDirectory()) {
+          if (e.name === "node_modules" || e.name === ".git" || e.name === ".venv") continue;
           walk(path.join(p, e.name), rel);
         } else if (e.isFile() && isTestFile(e.name)) {
           const filePath = `${dir}/${rel}`;
@@ -199,6 +280,7 @@ function collectTestFiles(structure, options = {}) {
 }
 function inferFrameworkFromFile(name, structure = {}) {
   if (/\.cy\.(js|ts|jsx|tsx)/i.test(name)) return "cypress";
+  if (/_test\.(js|ts)$/i.test(name)) return "codeceptjs";
   if (/\.spec\.(js|ts|jsx|tsx)/i.test(name)) {
     if (structure?.testFrameworks?.includes("webdriverio")) return "webdriverio";
     if (structure?.testFrameworks?.includes("appium")) return "appium";
@@ -319,6 +401,10 @@ server.registerTool(
         "pytest",
         "supertest",
         "pactum",
+        "testcafe",
+        "nightwatch",
+        "puppeteer",
+        "codeceptjs",
         "npm"
       ]).optional().describe("Framework espec\xEDfico ou 'npm' para npm test."),
       spec: z.string().optional().describe("Caminho do spec (ex: cypress/e2e/test.cy.js)."),
@@ -360,7 +446,23 @@ server.registerTool(
     } else if (selectedFramework === "webdriverio") {
       cmd = "npx";
       args = spec ? ["wdio", "run", spec] : ["wdio", "run"];
-      cwd = PROJECT_ROOT;
+      cwd = getFrameworkCwd(structure, ["wdio-webdriver-io", "specs", "tests"]);
+    } else if (selectedFramework === "testcafe") {
+      cmd = "npx";
+      args = spec ? ["testcafe", spec] : ["testcafe"];
+      cwd = getFrameworkCwd(structure, ["testcafe-js", "testcafe", "tests"]);
+    } else if (selectedFramework === "nightwatch") {
+      cmd = "npx";
+      args = spec ? ["nightwatch", "--test", spec] : ["nightwatch"];
+      cwd = getFrameworkCwd(structure, ["nightwatch-js", "nightwatch", "tests"]);
+    } else if (selectedFramework === "puppeteer") {
+      cmd = "npx";
+      args = spec ? ["jest", spec, "--config", "jest.config.js"] : ["jest"];
+      cwd = getFrameworkCwd(structure, ["puppeteer-js", "puppeteer", "__tests__"]);
+    } else if (selectedFramework === "codeceptjs") {
+      cmd = "npx";
+      args = spec ? ["codeceptjs", "run", "--grep", spec] : ["codeceptjs", "run"];
+      cwd = getFrameworkCwd(structure, ["codeceptjs", "tests"]);
     } else if (selectedFramework === "jest") {
       cmd = "npx";
       args = ["jest"];
