@@ -4,9 +4,16 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Agente autônomo de QA que aprende com os próprios erros.**
+**Executor + Consultor Inteligente de QA.**
 
-Não é só um assistente: é um agente que **lê seu projeto, gera testes, executa, corrige falhas automaticamente e aprende** para cada vez acertar mais na primeira tentativa.
+Não é só um executor de testes. É um agente que:
+- **Executa:** Roda testes, gera, corrige
+- **Analisa:** "login falha 30% das vezes"
+- **Prevê:** "checkout vai ficar flaky"
+- **Recomenda:** "faça isso agora: 1, 2, 3"
+- **Aprende:** Taxa de sucesso aumenta com o tempo
+
+**1 comando. Análise completa.**
 
 ---
 
@@ -14,11 +21,11 @@ Não é só um assistente: é um agente que **lê seu projeto, gera testes, exec
 
 | Outras ferramentas | **mcp-lab-agent** |
 |-------------------|-------------------|
-| Geram testes | **Gera, roda, corrige e aprende** |
-| Você corrige erros | **Auto-correção com retry inteligente** |
-| Sem memória | **Aprende com erros passados** |
-| Configuração complexa | **Zero config: detecta 15+ frameworks** |
-| Sem métricas | **Taxa de sucesso, correções, aprendizados** |
+| Só executam | **Executa + Analisa + Recomenda** |
+| "teste falhou" | **"login falha 30% das vezes (timing)"** |
+| Sem contexto | **"src/payment/ sem testes (RISCO ALTO)"** |
+| Você decide o que fazer | **"Faça isso agora: 1, 2, 3"** |
+| Sem aprendizado | **Taxa de sucesso aumenta com o tempo** |
 
 **Modo autônomo:**
 
@@ -39,17 +46,17 @@ O agente:
 
 ## Quick Start
 
-### Modo autônomo (CLI)
+### Análise Completa (CLI)
 
 ```bash
-# Gera, roda, corrige e aprende automaticamente
+# Análise completa: executa, analisa, prevê e recomenda
+npx mcp-lab-agent analyze
+
+# Modo autônomo: gera, roda, corrige e aprende
 npx mcp-lab-agent auto "login flow" --max-retries 5
 
 # Ver métricas de aprendizado
 npx mcp-lab-agent stats
-
-# Detectar estrutura do projeto
-npx mcp-lab-agent detect
 ```
 
 ### Integração com IDE (Cursor/Cline/Windsurf)

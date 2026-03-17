@@ -5,15 +5,11 @@ import { config } from "dotenv";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { spawn } from "child_process";
-import path from "path";
-import fs from "fs";
-var PROJECT_ROOT = process.cwd();
-config({ path: path.join(PROJECT_ROOT, ".env") });
-var server = new McpServer({
-  name: "mcp-lab-agent",
-  version: "1.0.0"
-});
+import { spawn as spawn2 } from "child_process";
+import path5 from "path";
+import fs5 from "fs";
+
+// src/core/llm-router.js
 function resolveLLMProvider(taskType = "simple") {
   const GROQ_KEY = process.env.GROQ_API_KEY;
   const GEMINI_KEY = process.env.GEMINI_API_KEY;
@@ -41,8 +37,13 @@ function resolveLLMProvider(taskType = "simple") {
   }
   return { provider, apiKey, baseUrl, model };
 }
+
+// src/core/memory.js
+import path from "path";
+import fs from "fs";
+var PROJECT_ROOT = process.cwd();
 var MEMORY_FILE = path.join(PROJECT_ROOT, ".qa-lab-memory.json");
-var FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
+var FLOWS_CONFIG_FILE2 = path.join(PROJECT_ROOT, "qa-lab-flows.json");
 function loadProjectMemory() {
   const memory = { patterns: {}, conventions: {}, lastRun: null, selectors: [] };
   if (fs.existsSync(MEMORY_FILE)) {
@@ -52,9 +53,9 @@ function loadProjectMemory() {
     } catch {
     }
   }
-  if (fs.existsSync(FLOWS_CONFIG_FILE)) {
+  if (fs.existsSync(FLOWS_CONFIG_FILE2)) {
     try {
-      const flows = JSON.parse(fs.readFileSync(FLOWS_CONFIG_FILE, "utf8"));
+      const flows = JSON.parse(fs.readFileSync(FLOWS_CONFIG_FILE2, "utf8"));
       memory.flows = flows.flows || [];
     } catch {
     }
@@ -72,6 +73,11 @@ function saveProjectMemory(updates) {
       data.learnings = data.learnings || [];
       data.learnings.push(...updates.learnings);
       if (data.learnings.length > 200) data.learnings = data.learnings.slice(-150);
+    }
+    if (updates.execution) {
+      data.executions = data.executions || [];
+      data.executions.push(updates.execution);
+      if (data.executions.length > 500) data.executions = data.executions.slice(-300);
     }
     data.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
     fs.writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2), "utf8");
@@ -95,6 +101,38 @@ function getMemoryStats() {
     firstAttemptSuccessRate: totalTests > 0 ? Math.round(firstAttemptSuccess / totalTests * 100) : 0
   };
 }
+function analyzeTestStability() {
+  const memory = loadProjectMemory();
+  const executions = memory.executions || [];
+  if (executions.length === 0) return { tests: [], message: "Nenhuma execu\xE7\xE3o registrada ainda." };
+  const byTest = {};
+  executions.forEach((ex) => {
+    if (!byTest[ex.testFile]) {
+      byTest[ex.testFile] = { total: 0, passed: 0, failed: 0, durations: [] };
+    }
+    byTest[ex.testFile].total++;
+    if (ex.passed) byTest[ex.testFile].passed++;
+    else byTest[ex.testFile].failed++;
+    if (ex.duration) byTest[ex.testFile].durations.push(ex.duration);
+  });
+  const tests = Object.entries(byTest).map(([file, data]) => {
+    const failureRate = Math.round(data.failed / data.total * 100);
+    const avgDuration = data.durations.length > 0 ? (data.durations.reduce((a, b) => a + b, 0) / data.durations.length).toFixed(1) : 0;
+    const stability = failureRate === 0 ? "stable" : failureRate < 20 ? "mostly_stable" : failureRate < 50 ? "flaky" : "unstable";
+    return {
+      file,
+      total: data.total,
+      passed: data.passed,
+      failed: data.failed,
+      failureRate,
+      avgDuration: parseFloat(avgDuration),
+      stability
+    };
+  }).sort((a, b) => b.failureRate - a.failureRate);
+  return { tests, message: `Analisadas ${executions.length} execu\xE7\xF5es de ${tests.length} teste(s).` };
+}
+
+// src/core/flaky-detection.js
 var FLAKY_PATTERNS = [
   { name: "timing", regex: /timeout|timed out|exceeded|wait|delay|slow|race condition/i, suggestion: "Adicione wait expl\xEDcito (ex: page.waitForSelector) ou aumente o timeout." },
   { name: "ordering", regex: /order|sequenc|flaky|intermittent|sometimes|random/i, suggestion: "Issole o teste ou use beforeAll/afterAll para estado limpo. Evite depend\xEAncia de ordem entre testes." },
@@ -112,6 +150,11 @@ function detectFlakyPatterns(runOutput) {
   const confidence = detected.length > 0 ? Math.min(0.5 + detected.length * 0.2, 0.95) : 0;
   return { isLikelyFlaky: confidence > 0.5, confidence, patterns: detected };
 }
+
+// src/core/project-structure.js
+import path2 from "path";
+import fs2 from "fs";
+var PROJECT_ROOT2 = process.cwd();
 function detectProjectStructure() {
   const structure = {
     hasTests: false,
@@ -125,9 +168,9 @@ function detectProjectStructure() {
     packageJson: null,
     pythonRequirements: null
   };
-  const pkgPath = path.join(PROJECT_ROOT, "package.json");
-  if (fs.existsSync(pkgPath)) {
-    structure.packageJson = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+  const pkgPath = path2.join(PROJECT_ROOT2, "package.json");
+  if (fs2.existsSync(pkgPath)) {
+    structure.packageJson = JSON.parse(fs2.readFileSync(pkgPath, "utf8"));
     const deps = {
       ...structure.packageJson.dependencies,
       ...structure.packageJson.devDependencies
@@ -201,9 +244,9 @@ function detectProjectStructure() {
       structure.hasFrontend = true;
     }
   }
-  const requirementsPath = path.join(PROJECT_ROOT, "requirements.txt");
-  if (fs.existsSync(requirementsPath)) {
-    const requirements = fs.readFileSync(requirementsPath, "utf8");
+  const requirementsPath = path2.join(PROJECT_ROOT2, "requirements.txt");
+  if (fs2.existsSync(requirementsPath)) {
+    const requirements = fs2.readFileSync(requirementsPath, "utf8");
     structure.pythonRequirements = requirements;
     if (/robotframework/i.test(requirements)) {
       structure.testFrameworks.push("robot");
@@ -238,7 +281,6 @@ function detectProjectStructure() {
     "scenarios",
     "mobile",
     "api",
-    // Monorepo: subprojetos por framework
     "playwright-js",
     "puppeteer-js",
     "testcafe-js",
@@ -249,20 +291,20 @@ function detectProjectStructure() {
     "selenium-python"
   ];
   for (const dir of commonTestDirs) {
-    const fullPath = path.join(PROJECT_ROOT, dir);
-    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+    const fullPath = path2.join(PROJECT_ROOT2, dir);
+    if (fs2.existsSync(fullPath) && fs2.statSync(fullPath).isDirectory()) {
       structure.testDirs.push(dir);
     }
   }
   const skipDirs = ["node_modules", ".git", "dist", "build", ".next", ".venv"];
   try {
-    const rootEntries = fs.readdirSync(PROJECT_ROOT, { withFileTypes: true });
+    const rootEntries = fs2.readdirSync(PROJECT_ROOT2, { withFileTypes: true });
     for (const e of rootEntries) {
       if (!e.isDirectory() || skipDirs.includes(e.name)) continue;
-      const subPath = path.join(PROJECT_ROOT, e.name);
+      const subPath = path2.join(PROJECT_ROOT2, e.name);
       if (structure.testDirs.includes(e.name)) continue;
-      const hasPkg = fs.existsSync(path.join(subPath, "package.json"));
-      const hasTests = fs.existsSync(path.join(subPath, "tests")) || fs.existsSync(path.join(subPath, "test")) || fs.existsSync(path.join(subPath, "e2e")) || fs.existsSync(path.join(subPath, "__tests__")) || fs.existsSync(path.join(subPath, "specs"));
+      const hasPkg = fs2.existsSync(path2.join(subPath, "package.json"));
+      const hasTests = fs2.existsSync(path2.join(subPath, "tests")) || fs2.existsSync(path2.join(subPath, "test")) || fs2.existsSync(path2.join(subPath, "e2e")) || fs2.existsSync(path2.join(subPath, "__tests__")) || fs2.existsSync(path2.join(subPath, "specs"));
       if (hasPkg || hasTests) {
         structure.testDirs.push(e.name);
       }
@@ -270,10 +312,10 @@ function detectProjectStructure() {
   } catch {
   }
   for (const dir of structure.testDirs) {
-    const subPkg = path.join(PROJECT_ROOT, dir, "package.json");
-    if (!fs.existsSync(subPkg)) continue;
+    const subPkg = path2.join(PROJECT_ROOT2, dir, "package.json");
+    if (!fs2.existsSync(subPkg)) continue;
     try {
-      const sub = JSON.parse(fs.readFileSync(subPkg, "utf8"));
+      const sub = JSON.parse(fs2.readFileSync(subPkg, "utf8"));
       const subDeps = { ...sub.dependencies || {}, ...sub.devDependencies || {} };
       const toAdd = [];
       if (subDeps.cypress && !structure.testFrameworks.includes("cypress")) toAdd.push("cypress");
@@ -292,10 +334,10 @@ function detectProjectStructure() {
     }
   }
   for (const dir of structure.testDirs) {
-    const reqPath = path.join(PROJECT_ROOT, dir, "requirements.txt");
-    if (!fs.existsSync(reqPath)) continue;
+    const reqPath = path2.join(PROJECT_ROOT2, dir, "requirements.txt");
+    if (!fs2.existsSync(reqPath)) continue;
     try {
-      const req = fs.readFileSync(reqPath, "utf8");
+      const req = fs2.readFileSync(reqPath, "utf8");
       if (/robotframework/i.test(req) && !structure.testFrameworks.includes("robot")) {
         structure.testFrameworks.push("robot");
         structure.hasTests = true;
@@ -309,9 +351,9 @@ function detectProjectStructure() {
   }
   const commonBackendDirs = ["backend", "server", "api", "src"];
   for (const dir of commonBackendDirs) {
-    const fullPath = path.join(PROJECT_ROOT, dir);
-    if (fs.existsSync(fullPath) && !structure.backendDir) {
-      const hasServerFile = fs.existsSync(path.join(fullPath, "server.js")) || fs.existsSync(path.join(fullPath, "index.js")) || fs.existsSync(path.join(fullPath, "app.js"));
+    const fullPath = path2.join(PROJECT_ROOT2, dir);
+    if (fs2.existsSync(fullPath) && !structure.backendDir) {
+      const hasServerFile = fs2.existsSync(path2.join(fullPath, "server.js")) || fs2.existsSync(path2.join(fullPath, "index.js")) || fs2.existsSync(path2.join(fullPath, "app.js"));
       if (hasServerFile) {
         structure.backendDir = dir;
       }
@@ -319,9 +361,9 @@ function detectProjectStructure() {
   }
   const commonFrontendDirs = ["frontend", "client", "web", "app", "src"];
   for (const dir of commonFrontendDirs) {
-    const fullPath = path.join(PROJECT_ROOT, dir);
-    if (fs.existsSync(fullPath) && !structure.frontendDir) {
-      const hasAppFile = fs.existsSync(path.join(fullPath, "App.js")) || fs.existsSync(path.join(fullPath, "App.tsx")) || fs.existsSync(path.join(fullPath, "index.html"));
+    const fullPath = path2.join(PROJECT_ROOT2, dir);
+    if (fs2.existsSync(fullPath) && !structure.frontendDir) {
+      const hasAppFile = fs2.existsSync(path2.join(fullPath, "App.js")) || fs2.existsSync(path2.join(fullPath, "App.tsx")) || fs2.existsSync(path2.join(fullPath, "index.html"));
       if (hasAppFile) {
         structure.frontendDir = dir;
       }
@@ -332,7 +374,6 @@ function detectProjectStructure() {
 var UNIVERSAL_TEST_PATTERNS = [
   /\.(cy|spec|test)\.(js|ts|jsx|tsx)$/i,
   /_test\.(js|ts)$/i,
-  // CodeceptJS
   /\.robot$/i,
   /\.feature$/i,
   /^(test_.*|.*_test)\.py$/i,
@@ -347,15 +388,15 @@ function collectTestFiles(structure, options = {}) {
   const { pattern, framework, maxContentFiles = 0 } = options;
   const results = [];
   for (const dir of structure.testDirs) {
-    const fullPath = path.join(PROJECT_ROOT, dir);
+    const fullPath = path2.join(PROJECT_ROOT2, dir);
     const walk = (p, base = "") => {
-      if (!fs.existsSync(p)) return;
-      const entries = fs.readdirSync(p, { withFileTypes: true });
+      if (!fs2.existsSync(p)) return;
+      const entries = fs2.readdirSync(p, { withFileTypes: true });
       for (const e of entries) {
         const rel = base ? `${base}/${e.name}` : e.name;
         if (e.isDirectory()) {
           if (e.name === "node_modules" || e.name === ".git" || e.name === ".venv") continue;
-          walk(path.join(p, e.name), rel);
+          walk(path2.join(p, e.name), rel);
         } else if (e.isFile() && isTestFile(e.name)) {
           const filePath = `${dir}/${rel}`;
           if (pattern && !filePath.toLowerCase().includes(pattern.toLowerCase())) continue;
@@ -364,7 +405,7 @@ function collectTestFiles(structure, options = {}) {
           const entry = { path: filePath, inferredFramework: inferredFw };
           if (maxContentFiles > 0 && results.length < maxContentFiles) {
             try {
-              entry.content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), "utf8");
+              entry.content = fs2.readFileSync(path2.join(PROJECT_ROOT2, filePath), "utf8");
             } catch {
             }
           }
@@ -411,13 +452,46 @@ function matchesFramework(inferred, requested) {
 function getFrameworkCwd(structure, preferredDirs) {
   for (const dir of preferredDirs) {
     if (structure.testDirs.includes(dir)) {
-      return path.join(PROJECT_ROOT, dir);
+      return path2.join(PROJECT_ROOT2, dir);
     }
   }
   const fallback = structure.testDirs[0];
-  return fallback ? path.join(PROJECT_ROOT, fallback) : PROJECT_ROOT;
+  return fallback ? path2.join(PROJECT_ROOT2, fallback) : PROJECT_ROOT2;
 }
-var METRICS_FILE = path.join(PROJECT_ROOT, ".qa-lab-metrics.json");
+function analyzeCodeRisks() {
+  const structure = detectProjectStructure();
+  const risks = [];
+  const srcDirs = ["src", "app", "lib", "components", "pages", "api", "services", "controllers"];
+  const foundDirs = srcDirs.filter((dir) => fs2.existsSync(path2.join(PROJECT_ROOT2, dir)));
+  foundDirs.forEach((dir) => {
+    const fullPath = path2.join(PROJECT_ROOT2, dir);
+    const files = fs2.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(js|ts|jsx|tsx|py)$/.test(f));
+    const hasTests = structure.testDirs.some((testDir) => {
+      const testPath = path2.join(PROJECT_ROOT2, testDir);
+      if (!fs2.existsSync(testPath)) return false;
+      const testFiles = fs2.readdirSync(testPath, { recursive: true });
+      return testFiles.some((tf) => tf.includes(dir) || tf.toLowerCase().includes(dir.toLowerCase()));
+    });
+    if (!hasTests && files.length > 0) {
+      risks.push({
+        area: dir,
+        files: files.length,
+        risk: files.length > 20 ? "high" : files.length > 10 ? "medium" : "low",
+        reason: "Sem testes detectados para esta \xE1rea"
+      });
+    }
+  });
+  return risks.sort((a, b) => {
+    const riskOrder = { high: 3, medium: 2, low: 1 };
+    return riskOrder[b.risk] - riskOrder[a.risk];
+  });
+}
+
+// src/core/tool-helpers.js
+import path3 from "path";
+import fs3 from "fs";
+var PROJECT_ROOT3 = process.cwd();
+var METRICS_FILE = path3.join(PROJECT_ROOT3, ".qa-lab-metrics.json");
 function parseTestRunResult(runOutput, exitCode) {
   let passed = 0;
   let failed = 0;
@@ -426,25 +500,13 @@ function parseTestRunResult(runOutput, exitCode) {
     passed = parseInt(jestMatch[1], 10);
     failed = jestMatch[2] ? parseInt(jestMatch[2], 10) : 0;
   }
-  const cypressPass = runOutput.match(/(\d+)\s+passing/);
-  const cypressFail = runOutput.match(/(\d+)\s+failing/);
-  if (cypressPass) passed = parseInt(cypressPass[1], 10);
-  if (cypressFail) failed = parseInt(cypressFail[1], 10);
-  const pwPass = runOutput.match(/(\d+)\s+passed/);
-  const pwFail = runOutput.match(/(\d+)\s+failed/);
-  if (pwPass) passed = parseInt(pwPass[1], 10);
-  if (pwFail) failed = parseInt(pwFail[1], 10);
-  if (passed === 0 && failed === 0) {
-    if (exitCode === 0) passed = 1;
-    else failed = 1;
-  }
-  return { passed, failed };
+  return { passed, failed, success: exitCode === 0 };
 }
-function appendMetricsEvent(event) {
+function recordMetricEvent(event) {
   try {
-    let data = { events: [], lastUpdated: (/* @__PURE__ */ new Date()).toISOString() };
-    if (fs.existsSync(METRICS_FILE)) {
-      const raw = fs.readFileSync(METRICS_FILE, "utf8");
+    let data = {};
+    if (fs3.existsSync(METRICS_FILE)) {
+      const raw = fs3.readFileSync(METRICS_FILE, "utf8");
       try {
         data = JSON.parse(raw);
       } catch {
@@ -454,7 +516,7 @@ function appendMetricsEvent(event) {
     data.events.push({ ...event, timestamp: event.timestamp || (/* @__PURE__ */ new Date()).toISOString() });
     data.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
     if (data.events.length > 500) data.events = data.events.slice(-400);
-    fs.writeFileSync(METRICS_FILE, JSON.stringify(data, null, 2), "utf8");
+    fs3.writeFileSync(METRICS_FILE, JSON.stringify(data, null, 2), "utf8");
   } catch {
   }
 }
@@ -471,6 +533,396 @@ function extractFailuresFromOutput(runOutput) {
     }
   }
   return failures.slice(0, 20);
+}
+function generateFailureExplanation(testCode, runOutput, memory = {}) {
+  const lines = [];
+  lines.push("# An\xE1lise de Falha\n");
+  lines.push("## C\xF3digo do Teste");
+  lines.push("```");
+  lines.push(testCode.slice(0, 2e3));
+  lines.push("```\n");
+  lines.push("## Output da Execu\xE7\xE3o");
+  lines.push("```");
+  lines.push(runOutput.slice(0, 2e3));
+  lines.push("```\n");
+  if (memory.learnings && memory.learnings.length > 0) {
+    lines.push("## Aprendizados Anteriores (\xFAltimos 5)");
+    memory.learnings.slice(-5).forEach((l) => {
+      lines.push(`- **${l.type}**: ${l.description || "N/A"}`);
+    });
+    lines.push("");
+  }
+  lines.push("## Sua Tarefa");
+  lines.push("1. Identifique a causa raiz da falha");
+  lines.push("2. Sugira uma corre\xE7\xE3o espec\xEDfica");
+  lines.push("3. Explique por que essa corre\xE7\xE3o deve funcionar");
+  return lines.join("\n");
+}
+
+// src/cli/commands.js
+import path4 from "path";
+import fs4 from "fs";
+import { spawn } from "child_process";
+var PROJECT_ROOT4 = process.cwd();
+var QA_AGENTS = {
+  autonomous: { desc: "Modo aut\xF4nomo: gera, testa, corrige e aprende", tools: ["qa_auto"] },
+  detection: { desc: "Detecta estrutura, frameworks, testes", tools: ["detect_project", "read_project", "list_test_files"] },
+  execution: { desc: "Executa testes, coverage, watch", tools: ["run_tests", "watch_tests", "get_test_coverage"] },
+  generation: { desc: "Gera e escreve testes", tools: ["generate_tests", "write_test", "create_test_template"] },
+  analysis: { desc: "Analisa falhas, sugere corre\xE7\xF5es", tools: ["analyze_failures", "por_que_falhou", "suggest_fix", "suggest_selector_fix", "analyze_file_methods"] },
+  browser: { desc: "Browser mode: screenshots, network, console", tools: ["web_eval_browser"] },
+  reporting: { desc: "Relat\xF3rios e m\xE9tricas", tools: ["create_bug_report", "get_business_metrics"] },
+  intelligence: { desc: "An\xE1lise preditiva e insights", tools: ["qa_full_analysis", "qa_health_check", "qa_suggest_next_test", "qa_predict_flaky", "qa_compare_with_industry", "qa_time_travel"] },
+  learning: { desc: "Sistema de aprendizado", tools: ["qa_learning_stats"] },
+  maintenance: { desc: "Linter, deps, an\xE1lise de c\xF3digo", tools: ["run_linter", "install_dependencies"] }
+};
+function getExtensionAndBaseDir(fw, structure) {
+  const extMap = { cypress: ".cy.js", playwright: ".spec.js", jest: ".test.js", vitest: ".test.js", robot: ".robot", pytest: ".py" };
+  const ext = extMap[fw] || ".spec.js";
+  const baseDir = structure.testDirs[0] ? path4.join(PROJECT_ROOT4, structure.testDirs[0]) : path4.join(PROJECT_ROOT4, "tests");
+  return { ext, baseDir };
+}
+async function handleCLI() {
+  const cmd = process.argv[2];
+  if (cmd === "--help" || cmd === "-h") {
+    console.log(`
+mcp-lab-agent - Executor + Consultor Inteligente de QA
+
+USO:
+  mcp-lab-agent [comando]   # Sem comando: inicia servidor MCP
+  mcp-lab-agent --help     # Mostra esta ajuda
+
+COMANDOS CLI:
+  analyze                               [NOVO] An\xE1lise completa: executa, analisa estabilidade, prev\xEA riscos e recomenda a\xE7\xF5es
+  auto <descri\xE7\xE3o> [--max-retries N]    Modo aut\xF4nomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
+  stats                                 Mostra estat\xEDsticas de aprendizado (taxa de sucesso, corre\xE7\xF5es, etc.)
+  detect [--json]                       Detecta frameworks e estrutura
+  route <tarefa>                        Sugere qual ferramenta usar
+  list                                  Lista ferramentas MCP dispon\xEDveis
+
+EXEMPLOS:
+  mcp-lab-agent analyze                         # An\xE1lise completa + recomenda\xE7\xF5es
+  mcp-lab-agent auto "login flow" --max-retries 5
+  mcp-lab-agent stats
+  mcp-lab-agent detect --json
+
+INTEGRA\xC7\xC3O MCP (Cursor/Cline/Windsurf):
+  Adicione ao ~/.cursor/mcp.json:
+  {
+    "mcpServers": {
+      "qa-lab-agent": {
+        "command": "npx",
+        "args": ["-y", "mcp-lab-agent"],
+        "cwd": "\${workspaceFolder}"
+      }
+    }
+  }
+
+AMBIENTES CORPORATIVOS (APIs bloqueadas):
+  Use Ollama (100% offline):
+    brew install ollama
+    ollama pull llama3.1:8b
+    ollama serve
+    mcp-lab-agent analyze  # Funciona sem internet!
+`);
+    return true;
+  }
+  if (cmd === "detect") {
+    const structure = detectProjectStructure();
+    const jsonOnly = process.argv.includes("--json");
+    if (jsonOnly) {
+      console.log(JSON.stringify(structure, null, 2));
+    } else {
+      const lines = [
+        "",
+        "mcp-lab-agent \xB7 detec\xE7\xE3o",
+        "\u2500".repeat(40),
+        `Frameworks: ${structure.testFrameworks.length ? structure.testFrameworks.join(", ") : "nenhum"}`,
+        `Pastas:    ${structure.testDirs.length ? structure.testDirs.join(", ") : "nenhuma"}`,
+        `Backend:   ${structure.backendDir || "\u2014"}`,
+        `Frontend:  ${structure.frontendDir || "\u2014"}`,
+        `Mobile:    ${structure.hasMobile ? "sim" : "\u2014"}`,
+        "\u2500".repeat(40),
+        "(use --json para sa\xEDda completa)",
+        ""
+      ];
+      console.log(lines.join("\n"));
+    }
+    return true;
+  }
+  if (cmd === "list") {
+    const agents = Object.entries(QA_AGENTS).map(([k, v]) => `  ${k}: ${v.tools.join(", ")}`);
+    console.log("Agentes e ferramentas:\n" + agents.join("\n"));
+    return true;
+  }
+  if (cmd === "route" && process.argv[3]) {
+    const task = process.argv.slice(3).join(" ");
+    const t = task.toLowerCase();
+    let agent = "detection";
+    if (/autônomo|auto|completo|loop|aprende|corrige automaticamente/i.test(t)) agent = "autonomous";
+    else if (/estatística|métrica de aprendizado|taxa de sucesso|learning|stats/i.test(t)) agent = "learning";
+    else if (/rodar|executar|run|test|coverage|watch/i.test(t)) agent = "execution";
+    else if (/gerar|criar|escrever|generate|write|template/i.test(t)) agent = "generation";
+    else if (/analisar|por que|falhou|sugerir|fix|selector/i.test(t)) agent = "analysis";
+    else if (/browser|navegador|screenshot|network|console/i.test(t)) agent = "browser";
+    else if (/relatório|métrica|bug report/i.test(t)) agent = "reporting";
+    else if (/linter|dependência|instalar|analisar método/i.test(t)) agent = "maintenance";
+    const a = QA_AGENTS[agent] || QA_AGENTS.detection;
+    console.log(JSON.stringify({ suggestedAgent: agent, suggestedTools: a.tools, description: a.desc }, null, 2));
+    return true;
+  }
+  if (cmd === "auto") {
+    await handleAutoCommand();
+    return true;
+  }
+  if (cmd === "stats") {
+    const stats = getMemoryStats();
+    console.log(`
+\u{1F4CA} Estat\xEDsticas de Aprendizado
+
+Total de aprendizados: ${stats.totalLearnings}
+Corre\xE7\xF5es bem-sucedidas: ${stats.successfulFixes}
+Corre\xE7\xF5es de seletores: ${stats.selectorFixes}
+Corre\xE7\xF5es de timing: ${stats.timingFixes}
+Testes gerados: ${stats.testsGenerated}
+Taxa de sucesso na 1\xAA tentativa: ${stats.firstAttemptSuccessRate}%
+
+${stats.totalLearnings === 0 ? "\u26A0\uFE0F Ainda n\xE3o h\xE1 aprendizados. Use 'mcp-lab-agent auto <descri\xE7\xE3o>' para gerar testes e aprender com erros." : ""}
+`);
+    return true;
+  }
+  if (cmd === "analyze") {
+    await handleAnalyzeCommand();
+    return true;
+  }
+  return false;
+}
+async function handleAutoCommand() {
+  const request = process.argv.slice(3).join(" ");
+  if (!request) {
+    console.error("\u274C Uso: mcp-lab-agent auto <descri\xE7\xE3o do teste> [--max-retries N]");
+    process.exit(1);
+  }
+  const maxRetriesIdx = process.argv.indexOf("--max-retries");
+  const maxRetries = maxRetriesIdx !== -1 && process.argv[maxRetriesIdx + 1] ? parseInt(process.argv[maxRetriesIdx + 1], 10) : 3;
+  const cleanRequest = request.replace(/--max-retries\s+\d+/g, "").trim();
+  console.log(`
+\u{1F916} Modo aut\xF4nomo iniciado: "${cleanRequest}"
+`);
+  const structure = detectProjectStructure();
+  const fw = structure.testFrameworks[0];
+  if (!fw) {
+    console.error("\u274C Nenhum framework detectado.");
+    process.exit(1);
+  }
+  const llm = resolveLLMProvider("simple");
+  if (!llm.apiKey) {
+    console.error("\u274C Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env");
+    process.exit(1);
+  }
+  const memory = loadProjectMemory();
+  const contextLines = [
+    `Frameworks: ${structure.testFrameworks.join(", ")}`,
+    `Pastas: ${structure.testDirs.join(", ")}`,
+    memory.flows?.length ? `Fluxos: ${memory.flows.map((f) => f.name || f.id).join(", ")}` : ""
+  ].filter(Boolean).join("\n");
+  let testFilePath = null;
+  let testContent = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    console.log(`
+[Tentativa ${attempt}/${maxRetries}] Gerando teste...`);
+    const { provider, apiKey, baseUrl, model } = llm;
+    const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
+    const systemPrompt = `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
+${memoryHints ? `
+Aprendizados anteriores (use como refer\xEAncia):
+${memoryHints.slice(0, 1e3)}` : ""}
+Retorne SOMENTE o c\xF3digo, sem markdown.`;
+    const userPrompt = `Contexto:
+${contextLines}
+
+Gere teste para: ${cleanRequest}
+Framework: ${fw}`;
+    try {
+      let specContent = "";
+      if (provider === "gemini") {
+        const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 4096 }
+          })
+        });
+        const data = await res.json();
+        specContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      } else {
+        const res = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+            temperature: 0.3,
+            max_tokens: 4096
+          })
+        });
+        const data = await res.json();
+        specContent = data.choices?.[0]?.message?.content || "";
+      }
+      specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+      testContent = specContent;
+      if (!testFilePath) {
+        const fileName = cleanRequest.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
+        const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
+        const safeName = fileName + ext;
+        testFilePath = path4.join(baseDir, safeName);
+        if (!fs4.existsSync(baseDir)) fs4.mkdirSync(baseDir, { recursive: true });
+      }
+      fs4.writeFileSync(testFilePath, testContent, "utf8");
+      console.log(`\u2705 Teste gravado: ${testFilePath}`);
+      console.log(`
+[Tentativa ${attempt}/${maxRetries}] Executando teste...`);
+      const runResult = await new Promise((resolve) => {
+        const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
+          cwd: PROJECT_ROOT4,
+          stdio: ["inherit", "pipe", "pipe"],
+          shell: process.platform === "win32"
+        });
+        let stdout = "", stderr = "";
+        if (child.stdout) child.stdout.on("data", (d) => {
+          stdout += d.toString();
+        });
+        if (child.stderr) child.stderr.on("data", (d) => {
+          stderr += d.toString();
+        });
+        child.on("close", (code) => resolve({ code, output: [stdout, stderr].filter(Boolean).join("\n") }));
+      });
+      if (runResult.code === 0) {
+        console.log(`
+\u2705 Teste passou na tentativa ${attempt}!`);
+        saveProjectMemory({
+          learnings: [{ type: "test_generated", request: cleanRequest, framework: fw, success: true, passedFirstTime: attempt === 1, attempts: attempt, timestamp: (/* @__PURE__ */ new Date()).toISOString() }]
+        });
+        console.log(`
+\u{1F4CA} Aprendizado salvo. Use "mcp-lab-agent stats" para ver m\xE9tricas.
+`);
+        process.exit(0);
+      }
+      console.log(`
+\u274C Teste falhou (exit ${runResult.code})`);
+      console.log(`
+Sa\xEDda:
+${runResult.output.slice(0, 800)}
+`);
+      if (attempt >= maxRetries) {
+        console.log(`
+\u274C Limite de tentativas atingido (${maxRetries}).
+`);
+        saveProjectMemory({
+          learnings: [{ type: "test_generated", request: cleanRequest, framework: fw, success: false, attempts: attempt, timestamp: (/* @__PURE__ */ new Date()).toISOString() }]
+        });
+        process.exit(1);
+      }
+      console.log(`
+[Tentativa ${attempt}/${maxRetries}] Analisando falha...`);
+      const flakyAnalysis = detectFlakyPatterns(runResult.output);
+      if (flakyAnalysis.isLikelyFlaky) {
+        console.log(`\u26A0\uFE0F Flaky detectado (${flakyAnalysis.confidence.toFixed(2)}): ${flakyAnalysis.patterns.map((p) => p.pattern).join(", ")}`);
+      }
+      console.log(`
+[Tentativa ${attempt}/${maxRetries}] Aplicando corre\xE7\xE3o (simulada)...`);
+      console.log(`\u26A0\uFE0F Corre\xE7\xE3o autom\xE1tica ainda n\xE3o implementada nesta vers\xE3o CLI. Tentando novamente...`);
+    } catch (err) {
+      console.error(`
+\u274C Erro na tentativa ${attempt}: ${err.message}
+`);
+      process.exit(1);
+    }
+  }
+  console.log(`
+\u274C Falhou ap\xF3s ${maxRetries} tentativa(s).
+`);
+  process.exit(1);
+}
+async function handleAnalyzeCommand() {
+  console.log("\n\u{1F916} An\xE1lise completa iniciada...\n");
+  const structure = detectProjectStructure();
+  console.log("[1/4] \u{1F50D} Detectando estrutura...");
+  console.log(`\u2705 ${structure.testFrameworks.join(", ")} detectado(s)
+`);
+  const testFiles = structure.testDirs.flatMap((dir) => {
+    const fullPath = path4.join(PROJECT_ROOT4, dir);
+    if (!fs4.existsSync(fullPath)) return [];
+    return fs4.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+  });
+  console.log(`\u2705 ${testFiles.length} teste(s) encontrado(s)
+`);
+  console.log("[2/4] \u{1F9E0} Analisando estabilidade...");
+  const stabilityAnalysis = analyzeTestStability();
+  const unstableTests = stabilityAnalysis.tests.filter((t) => t.failureRate > 20);
+  if (unstableTests.length > 0) {
+    console.log(`\u26A0\uFE0F ${unstableTests.length} teste(s) inst\xE1vel(is):`);
+    unstableTests.slice(0, 3).forEach((t) => {
+      console.log(`   - ${t.file}: ${t.failureRate}% de falha (${t.failed}/${t.total} execu\xE7\xF5es)`);
+    });
+  } else {
+    console.log("\u2705 Todos os testes s\xE3o est\xE1veis");
+  }
+  console.log();
+  console.log("[3/4] \u{1F52E} Analisando riscos por \xE1rea...");
+  const codeRisks = analyzeCodeRisks();
+  const highRisks = codeRisks.filter((r) => r.risk === "high");
+  if (highRisks.length > 0) {
+    console.log(`\u{1F534} ${highRisks.length} \xE1rea(s) de RISCO ALTO:`);
+    highRisks.slice(0, 3).forEach((r) => {
+      console.log(`   - ${r.area}/: ${r.files} arquivo(s) sem testes`);
+    });
+  } else {
+    console.log("\u2705 Todas as \xE1reas principais t\xEAm cobertura");
+  }
+  console.log();
+  console.log("[4/4] \u{1F4A1} Gerando recomenda\xE7\xF5es...\n");
+  const actions = [];
+  unstableTests.forEach((t) => {
+    actions.push({ priority: "\u{1F534} URGENTE", action: `Refatore ${t.file} (falha ${t.failureRate}%)`, command: `mcp-lab-agent auto "corrigir ${t.file}"` });
+  });
+  highRisks.forEach((r) => {
+    actions.push({ priority: "\u{1F534} URGENTE", action: `Adicione testes para ${r.area}/`, command: `mcp-lab-agent auto "testes para ${r.area}"` });
+  });
+  let score = 100;
+  score -= unstableTests.length * 10;
+  score -= highRisks.length * 15;
+  score = Math.max(0, score);
+  const emoji = score >= 80 ? "\u{1F680}" : score >= 60 ? "\u2705" : "\u26A0\uFE0F";
+  console.log("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n");
+  console.log(`${emoji} RELAT\xD3RIO COMPLETO
+`);
+  console.log(`Nota: ${score}/100
+`);
+  console.log("A\xC7\xD5ES RECOMENDADAS:\n");
+  actions.slice(0, 5).forEach((a, i) => {
+    console.log(`${i + 1}. ${a.priority}: ${a.action}`);
+    console.log(`   \u2192 ${a.command}
+`);
+  });
+  if (actions.length === 0) {
+    console.log("\u2705 Projeto em excelente estado!\n");
+  }
+  console.log("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n");
+}
+
+// src/index.js
+var PROJECT_ROOT5 = process.cwd();
+config({ path: path5.join(PROJECT_ROOT5, ".env") });
+var server = new McpServer({
+  name: "mcp-lab-agent",
+  version: "2.1.0"
+});
+var METRICS_FILE2 = path5.join(PROJECT_ROOT5, ".qa-lab-metrics.json");
+function appendMetricsEvent(event) {
+  recordMetricEvent(event);
 }
 server.registerTool(
   "read_file",
@@ -489,20 +941,20 @@ server.registerTool(
   },
   async ({ path: filePath, encoding = "utf8" }) => {
     const normalized = filePath.replace(/^\//, "").replace(/\\/g, "/");
-    const fullPath = path.join(PROJECT_ROOT, normalized);
-    if (!fullPath.startsWith(PROJECT_ROOT)) {
+    const fullPath = path5.join(PROJECT_ROOT5, normalized);
+    if (!fullPath.startsWith(PROJECT_ROOT5)) {
       return {
         content: [{ type: "text", text: "Caminho fora do projeto." }],
         structuredContent: { ok: false, error: "Path outside project" }
       };
     }
-    if (!fs.existsSync(fullPath)) {
+    if (!fs5.existsSync(fullPath)) {
       return {
         content: [{ type: "text", text: `Arquivo n\xE3o encontrado: ${normalized}` }],
         structuredContent: { ok: false, error: "File not found" }
       };
     }
-    const stat = fs.statSync(fullPath);
+    const stat = fs5.statSync(fullPath);
     if (stat.isDirectory()) {
       return {
         content: [{ type: "text", text: "\xC9 um diret\xF3rio. Use um caminho de arquivo." }],
@@ -510,7 +962,7 @@ server.registerTool(
       };
     }
     try {
-      const content = fs.readFileSync(fullPath, encoding);
+      const content = fs5.readFileSync(fullPath, encoding);
       return {
         content: [{ type: "text", text: content }],
         structuredContent: { ok: true, content }
@@ -589,7 +1041,7 @@ server.registerTool(
         structuredContent: { ok: false, error: "Playwright not installed. Run: npm install playwright" }
       };
     }
-    const outPath = screenshotPath ? path.join(PROJECT_ROOT, screenshotPath.replace(/^\//, "")) : path.join(PROJECT_ROOT, ".qa-lab-screenshot.png");
+    const outPath = screenshotPath ? path5.join(PROJECT_ROOT5, screenshotPath.replace(/^\//, "")) : path5.join(PROJECT_ROOT5, ".qa-lab-screenshot.png");
     const consoleLogs = [];
     const consoleErrors = [];
     const networkRequests = [];
@@ -616,7 +1068,7 @@ server.registerTool(
       await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
       await page.screenshot({ path: outPath, fullPage: false });
       await browser.close();
-      const relPath = path.relative(PROJECT_ROOT, outPath);
+      const relPath = path5.relative(PROJECT_ROOT5, outPath);
       let summary = `Screenshot salvo: ${relPath}`;
       if (consoleErrors.length) summary += `
 
@@ -643,8 +1095,9 @@ Requisi\xE7\xF5es: ${networkRequests.length}`;
     }
   }
 );
-var QA_AGENTS = {
+var QA_AGENTS2 = {
   autonomous: { tools: ["qa_auto"], desc: "Modo aut\xF4nomo: gera, roda, corrige e aprende (loop completo)" },
+  intelligence: { tools: ["qa_full_analysis", "qa_health_check", "qa_suggest_next_test", "qa_predict_flaky", "qa_compare_with_industry"], desc: "Executor + Consultor: an\xE1lise completa, diagn\xF3stico, sugest\xF5es e predi\xE7\xF5es" },
   detection: { tools: ["detect_project", "read_project", "list_test_files"], desc: "Detec\xE7\xE3o de estrutura, frameworks e arquivos" },
   execution: { tools: ["run_tests", "watch_tests", "get_test_coverage"], desc: "Execu\xE7\xE3o de testes e cobertura" },
   generation: { tools: ["generate_tests", "write_test", "create_test_template"], desc: "Gera\xE7\xE3o de testes com LLM" },
@@ -652,7 +1105,6 @@ var QA_AGENTS = {
   browser: { tools: ["web_eval_browser"], desc: "Avalia\xE7\xE3o em browser real (screenshots, network, console)" },
   reporting: { tools: ["create_bug_report", "get_business_metrics"], desc: "Relat\xF3rios e m\xE9tricas" },
   learning: { tools: ["qa_learning_stats", "qa_time_travel"], desc: "Estat\xEDsticas de aprendizado e evolu\xE7\xE3o" },
-  intelligence: { tools: ["qa_health_check", "qa_suggest_next_test", "qa_predict_flaky"], desc: "IA proativa: diagn\xF3stico, sugest\xF5es e predi\xE7\xF5es" },
   maintenance: { tools: ["run_linter", "install_dependencies", "analyze_file_methods"], desc: "Manuten\xE7\xE3o e an\xE1lise de c\xF3digo" }
 };
 server.registerTool(
@@ -673,33 +1125,33 @@ server.registerTool(
   async ({ task }) => {
     const t = task.toLowerCase();
     if (/autônomo|auto|completo|loop|aprende|corrige automaticamente/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: autonomous \u2192 qa_auto (loop completo: gera, roda, corrige, aprende)" }], structuredContent: { ok: true, suggestedAgent: "autonomous", suggestedTools: QA_AGENTS.autonomous.tools, description: QA_AGENTS.autonomous.desc } };
+      return { content: [{ type: "text", text: "Agente: autonomous \u2192 qa_auto (loop completo: gera, roda, corrige, aprende)" }], structuredContent: { ok: true, suggestedAgent: "autonomous", suggestedTools: QA_AGENTS2.autonomous.tools, description: QA_AGENTS2.autonomous.desc } };
     }
     if (/health|saúde|diagnóstico|nota|score|próximo teste|sugerir|prever|flaky|benchmark|comparar|indústria/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: intelligence \u2192 qa_health_check, qa_suggest_next_test, qa_predict_flaky, qa_compare_with_industry" }], structuredContent: { ok: true, suggestedAgent: "intelligence", suggestedTools: QA_AGENTS.intelligence.tools, description: QA_AGENTS.intelligence.desc } };
+      return { content: [{ type: "text", text: "Agente: intelligence \u2192 qa_health_check, qa_suggest_next_test, qa_predict_flaky, qa_compare_with_industry" }], structuredContent: { ok: true, suggestedAgent: "intelligence", suggestedTools: QA_AGENTS2.intelligence.tools, description: QA_AGENTS2.intelligence.desc } };
     }
     if (/estatística|métrica de aprendizado|taxa de sucesso|learning|stats|evolução|timeline|tempo|histórico/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: learning \u2192 qa_learning_stats, qa_time_travel" }], structuredContent: { ok: true, suggestedAgent: "learning", suggestedTools: QA_AGENTS.learning.tools, description: QA_AGENTS.learning.desc } };
+      return { content: [{ type: "text", text: "Agente: learning \u2192 qa_learning_stats, qa_time_travel" }], structuredContent: { ok: true, suggestedAgent: "learning", suggestedTools: QA_AGENTS2.learning.tools, description: QA_AGENTS2.learning.desc } };
     }
     if (/rodar|executar|run|test|coverage|watch/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: execution \u2192 run_tests, get_test_coverage" }], structuredContent: { ok: true, suggestedAgent: "execution", suggestedTools: QA_AGENTS.execution.tools, description: QA_AGENTS.execution.desc } };
+      return { content: [{ type: "text", text: "Agente: execution \u2192 run_tests, get_test_coverage" }], structuredContent: { ok: true, suggestedAgent: "execution", suggestedTools: QA_AGENTS2.execution.tools, description: QA_AGENTS2.execution.desc } };
     }
     if (/gerar|criar|escrever|generate|write|template/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: generation \u2192 generate_tests, write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS.generation.tools, description: QA_AGENTS.generation.desc } };
+      return { content: [{ type: "text", text: "Agente: generation \u2192 generate_tests, write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS2.generation.tools, description: QA_AGENTS2.generation.desc } };
     }
     if (/analisar|por que|falhou|suggest|correção|selector|fix/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: analysis \u2192 analyze_failures, por_que_falhou, suggest_fix" }], structuredContent: { ok: true, suggestedAgent: "analysis", suggestedTools: QA_AGENTS.analysis.tools, description: QA_AGENTS.analysis.desc } };
+      return { content: [{ type: "text", text: "Agente: analysis \u2192 analyze_failures, por_que_falhou, suggest_fix" }], structuredContent: { ok: true, suggestedAgent: "analysis", suggestedTools: QA_AGENTS2.analysis.tools, description: QA_AGENTS2.analysis.desc } };
     }
     if (/browser|screenshot|navegador|avaliar|ux|network|console/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: browser \u2192 web_eval_browser" }], structuredContent: { ok: true, suggestedAgent: "browser", suggestedTools: QA_AGENTS.browser.tools, description: QA_AGENTS.browser.desc } };
+      return { content: [{ type: "text", text: "Agente: browser \u2192 web_eval_browser" }], structuredContent: { ok: true, suggestedAgent: "browser", suggestedTools: QA_AGENTS2.browser.tools, description: QA_AGENTS2.browser.desc } };
     }
     if (/detectar|estrutura|listar|arquivos|framework/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: detection \u2192 detect_project, list_test_files" }], structuredContent: { ok: true, suggestedAgent: "detection", suggestedTools: QA_AGENTS.detection.tools, description: QA_AGENTS.detection.desc } };
+      return { content: [{ type: "text", text: "Agente: detection \u2192 detect_project, list_test_files" }], structuredContent: { ok: true, suggestedAgent: "detection", suggestedTools: QA_AGENTS2.detection.tools, description: QA_AGENTS2.detection.desc } };
     }
     if (/relatório|bug|métricas|metrics/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: reporting \u2192 create_bug_report, get_business_metrics" }], structuredContent: { ok: true, suggestedAgent: "reporting", suggestedTools: QA_AGENTS.reporting.tools, description: QA_AGENTS.reporting.desc } };
+      return { content: [{ type: "text", text: "Agente: reporting \u2192 create_bug_report, get_business_metrics" }], structuredContent: { ok: true, suggestedAgent: "reporting", suggestedTools: QA_AGENTS2.reporting.tools, description: QA_AGENTS2.reporting.desc } };
     }
-    return { content: [{ type: "text", text: "Agente: detection (gen\xE9rico)" }], structuredContent: { ok: true, suggestedAgent: "detection", suggestedTools: QA_AGENTS.detection.tools, description: QA_AGENTS.detection.desc } };
+    return { content: [{ type: "text", text: "Agente: detection (gen\xE9rico)" }], structuredContent: { ok: true, suggestedAgent: "detection", suggestedTools: QA_AGENTS2.detection.tools, description: QA_AGENTS2.detection.desc } };
   }
 );
 server.registerTool(
@@ -758,11 +1210,11 @@ server.registerTool(
     if (selectedFramework === "cypress") {
       cmd = "npx";
       args = spec ? ["cypress", "run", "--spec", spec] : ["cypress", "run"];
-      cwd = structure.testDirs.includes("cypress") ? path.join(PROJECT_ROOT, "cypress") : structure.testDirs[0] ? path.join(PROJECT_ROOT, structure.testDirs[0]) : PROJECT_ROOT;
+      cwd = structure.testDirs.includes("cypress") ? path5.join(PROJECT_ROOT5, "cypress") : structure.testDirs[0] ? path5.join(PROJECT_ROOT5, structure.testDirs[0]) : PROJECT_ROOT5;
     } else if (selectedFramework === "playwright") {
       cmd = "npx";
       args = spec ? ["playwright", "test", spec] : ["playwright", "test"];
-      cwd = structure.testDirs.includes("playwright") ? path.join(PROJECT_ROOT, "playwright") : structure.testDirs[0] ? path.join(PROJECT_ROOT, structure.testDirs[0]) : PROJECT_ROOT;
+      cwd = structure.testDirs.includes("playwright") ? path5.join(PROJECT_ROOT5, "playwright") : structure.testDirs[0] ? path5.join(PROJECT_ROOT5, structure.testDirs[0]) : PROJECT_ROOT5;
     } else if (selectedFramework === "webdriverio") {
       cmd = "npx";
       args = spec ? ["wdio", "run", spec] : ["wdio", "run"];
@@ -787,45 +1239,45 @@ server.registerTool(
       cmd = "npx";
       args = ["jest"];
       if (spec) args.push(spec);
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     } else if (selectedFramework === "vitest") {
       cmd = "npx";
       args = ["vitest", "run"];
       if (spec) args.push(spec);
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     } else if (selectedFramework === "mocha") {
       cmd = "npx";
       args = spec ? ["mocha", spec] : ["mocha"];
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     } else if (selectedFramework === "appium") {
       cmd = "npx";
       args = spec ? ["wdio", "run", spec] : ["wdio", "run"];
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     } else if (selectedFramework === "detox") {
       cmd = "npx";
       args = ["detox", "test"];
       if (spec) args.push(spec);
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     } else if (selectedFramework === "robot") {
       cmd = "robot";
       args = spec ? [spec] : [structure.testDirs[0] || "tests"];
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     } else if (selectedFramework === "pytest") {
       cmd = "pytest";
       args = spec ? [spec] : [];
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     } else if (selectedFramework === "supertest" || selectedFramework === "pactum") {
       cmd = "npm";
       args = ["test"];
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     } else {
       cmd = "npm";
       args = ["test"];
-      cwd = PROJECT_ROOT;
+      cwd = PROJECT_ROOT5;
     }
     const startTime = Date.now();
     return new Promise((resolve) => {
-      const child = spawn(cmd, args, {
+      const child = spawn2(cmd, args, {
         cwd,
         stdio: ["inherit", "pipe", "pipe"],
         shell: process.platform === "win32",
@@ -853,7 +1305,7 @@ server.registerTool(
         const durationSeconds = Math.round((Date.now() - startTime) / 1e3);
         if (!passed && runOutput) {
           try {
-            fs.writeFileSync(path.join(PROJECT_ROOT, ".qa-lab-last-failure.log"), runOutput, "utf8");
+            fs5.writeFileSync(path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log"), runOutput, "utf8");
           } catch {
           }
         }
@@ -869,6 +1321,15 @@ server.registerTool(
           failures: !passed ? extractFailuresFromOutput(runOutput) : void 0
         });
         if (passed) saveProjectMemory({ lastRun: { spec: spec || null, framework: selectedFramework, passed: p } });
+        saveProjectMemory({
+          execution: {
+            testFile: spec || "all",
+            passed,
+            duration: durationSeconds,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            framework: selectedFramework
+          }
+        });
         resolve({
           content: [{ type: "text", text: passed ? "Testes executados com sucesso." : "Falha na execu\xE7\xE3o dos testes." }],
           structuredContent: {
@@ -968,10 +1429,10 @@ server.registerTool(
 ${referenceCode.slice(0, 8e3)}`;
     if (referencePaths?.length) {
       for (const p of referencePaths.slice(0, 5)) {
-        const full = path.join(PROJECT_ROOT, p.replace(/^\//, "").replace(/\\/g, "/"));
-        if (fs.existsSync(full)) {
+        const full = path5.join(PROJECT_ROOT5, p.replace(/^\//, "").replace(/\\/g, "/"));
+        if (fs5.existsSync(full)) {
           try {
-            const content = fs.readFileSync(full, "utf8");
+            const content = fs5.readFileSync(full, "utf8");
             referenceBlock += `
 
 --- Arquivo: ${p} ---
@@ -1068,7 +1529,7 @@ Framework alvo: ${fw}${referenceBlock}`;
     }
   }
 );
-function getExtensionAndBaseDir(fw, structure) {
+function getExtensionAndBaseDir2(fw, structure) {
   const extMap = {
     cypress: ".cy.js",
     playwright: ".spec.js",
@@ -1093,7 +1554,7 @@ function getExtensionAndBaseDir(fw, structure) {
     robot: structure.testDirs.includes("robot") ? "robot" : structure.testDirs[0] || "tests",
     behave: structure.testDirs.includes("features") ? "features" : structure.testDirs[0] || "tests"
   };
-  const baseDir = path.join(PROJECT_ROOT, baseMap[fw] || structure.testDirs[0] || "tests");
+  const baseDir = path5.join(PROJECT_ROOT5, baseMap[fw] || structure.testDirs[0] || "tests");
   return { ext, baseDir };
 }
 server.registerTool(
@@ -1135,16 +1596,16 @@ server.registerTool(
         structuredContent: { ok: false, error: "No test framework" }
       };
     }
-    const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
+    const { ext, baseDir } = getExtensionAndBaseDir2(fw, structure);
     const safeName = name.replace(/[^a-z0-9-_]/gi, "-").replace(/-+/g, "-").replace(/_+/g, "_").replace(/\.(cy|spec|test|robot|feature|py)\.?(js|ts|py)?$/i, "").replace(/^[-_]+|[-_]+$/g, "");
     const fileName = ext.startsWith("_") ? `${safeName}${ext}` : `${safeName}${ext}`;
-    const targetDir = subdir ? path.join(baseDir, subdir) : baseDir;
-    const filePath = path.join(targetDir, fileName);
+    const targetDir = subdir ? path5.join(baseDir, subdir) : baseDir;
+    const filePath = path5.join(targetDir, fileName);
     try {
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
+      if (!fs5.existsSync(targetDir)) {
+        fs5.mkdirSync(targetDir, { recursive: true });
       }
-      fs.writeFileSync(filePath, content, "utf8");
+      fs5.writeFileSync(filePath, content, "utf8");
       return {
         content: [{ type: "text", text: `Arquivo gravado: ${filePath}` }],
         structuredContent: { ok: true, path: filePath }
@@ -1269,80 +1730,6 @@ async function callLlmForExplanation(provider, apiKey, baseUrl, model, systemPro
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
 }
-async function generateFailureExplanation(resolvedOutput, testFilePath = null) {
-  const structure = detectProjectStructure();
-  const fw = structure.testFrameworks[0] || "unknown";
-  let testCode = "";
-  if (testFilePath) {
-    const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
-    const fullPath = path.join(PROJECT_ROOT, normalized);
-    if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
-      try {
-        testCode = fs.readFileSync(fullPath, "utf8");
-      } catch {
-      }
-    }
-  }
-  const llm = resolveLLMProvider("complex");
-  if (!llm.apiKey) {
-    return { ok: false, error: "No API key", formattedText: null };
-  }
-  const { provider, apiKey, baseUrl, model } = llm;
-  const fwHints = {
-    webdriverio: "WebdriverIO (describe/it, $, browser.$)",
-    appium: "Appium/WebdriverIO (mobile, $, browser.$)",
-    playwright: "Playwright (test, page, locator)",
-    cypress: "Cypress (cy.get, cy.click)",
-    jest: "Jest (describe, test, expect)",
-    vitest: "Vitest (describe, test, expect)",
-    robot: "Robot Framework",
-    pytest: "pytest"
-  };
-  const systemPrompt = `Voc\xEA \xE9 um mentor de QA. Analise o output de falha e responda em JSON (apenas o JSON, sem markdown) com as chaves:
-- oQueAconteceu: string (explica\xE7\xE3o em portugu\xEAs do que aconteceu, simples)
-- porQueProvavelmenteFalhou: array de strings (lista de poss\xEDveis causas, uma por item)
-- oQueFazerAgora: array de strings (passos numerados do que fazer)
-- sugestaoCorrecao: string ou null (c\xF3digo de corre\xE7\xE3o se aplic\xE1vel, no formato do framework)
-- conceito: string ou null (ex: "Flaky test = teste intermitente. Geralmente por timing ou seletores fr\xE1geis.")
-- framework: string (framework do projeto)
-
-Framework do projeto: ${fw}. ${fwHints[fw] || ""}
-Responda APENAS com o JSON v\xE1lido, sem texto antes ou depois.`;
-  const userPrompt = `Output do terminal/log (teste falhou):
----
-${resolvedOutput.slice(0, 12e3)}
----
-${testCode ? `
-C\xF3digo do teste que falhou:
----
-${testCode.slice(0, 6e3)}
----` : ""}`;
-  try {
-    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
-    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-    let data = {};
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      data = {
-        oQueAconteceu: raw.slice(0, 500) || "N\xE3o foi poss\xEDvel parsear a resposta.",
-        porQueProvavelmenteFalhou: [],
-        oQueFazerAgora: [],
-        sugestaoCorrecao: null,
-        conceito: null,
-        framework: fw
-      };
-    }
-    data.framework = data.framework || fw;
-    if (testFilePath && data.sugestaoCorrecao) {
-      saveProjectMemory({ patterns: { [testFilePath]: { lastFix: data.sugestaoCorrecao?.slice(0, 500) } } });
-    }
-    const formattedText = formatFailureExplanation(data);
-    return { ok: true, formattedText, structuredContent: data };
-  } catch (err) {
-    return { ok: false, error: err.message, formattedText: null };
-  }
-}
 server.registerTool(
   "por_que_falhou",
   {
@@ -1369,10 +1756,10 @@ server.registerTool(
     const fw = structure.testFrameworks[0] || "unknown";
     let resolvedOutput = errorOutput?.trim() || "";
     if (!resolvedOutput) {
-      const lastFailurePath = path.join(PROJECT_ROOT, ".qa-lab-last-failure.log");
-      if (fs.existsSync(lastFailurePath)) {
+      const lastFailurePath = path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log");
+      if (fs5.existsSync(lastFailurePath)) {
         try {
-          resolvedOutput = fs.readFileSync(lastFailurePath, "utf8");
+          resolvedOutput = fs5.readFileSync(lastFailurePath, "utf8");
         } catch {
         }
       }
@@ -1389,10 +1776,10 @@ server.registerTool(
     let testCode = "";
     if (testFilePath) {
       const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
-      const fullPath = path.join(PROJECT_ROOT, normalized);
-      if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+      const fullPath = path5.join(PROJECT_ROOT5, normalized);
+      if (fs5.existsSync(fullPath) && !fs5.statSync(fullPath).isDirectory()) {
         try {
-          testCode = fs.readFileSync(fullPath, "utf8");
+          testCode = fs5.readFileSync(fullPath, "utf8");
         } catch {
         }
       }
@@ -1556,9 +1943,9 @@ server.registerTool(
     const fw = framework || inferFrameworkFromFile(testFilePath.split("/").pop(), structure);
     let resolvedOutput = errorOutput;
     if (!resolvedOutput) {
-      const logPath = path.join(PROJECT_ROOT, ".qa-lab-last-failure.log");
-      if (fs.existsSync(logPath)) {
-        resolvedOutput = fs.readFileSync(logPath, "utf8");
+      const logPath = path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log");
+      if (fs5.existsSync(logPath)) {
+        resolvedOutput = fs5.readFileSync(logPath, "utf8");
       }
     }
     if (!resolvedOutput) {
@@ -1574,10 +1961,10 @@ server.registerTool(
       };
     }
     let testCode = "";
-    const fullPath = path.join(PROJECT_ROOT, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
-    if (fs.existsSync(fullPath)) {
+    const fullPath = path5.join(PROJECT_ROOT5, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
+    if (fs5.existsSync(fullPath)) {
       try {
-        testCode = fs.readFileSync(fullPath, "utf8");
+        testCode = fs5.readFileSync(fullPath, "utf8");
       } catch {
       }
     }
@@ -1682,20 +2069,20 @@ server.registerTool(
   },
   async ({ path: filePath }) => {
     const normalized = filePath.replace(/^\//, "").replace(/\\/g, "/");
-    const fullPath = path.join(PROJECT_ROOT, normalized);
-    if (!fullPath.startsWith(PROJECT_ROOT)) {
+    const fullPath = path5.join(PROJECT_ROOT5, normalized);
+    if (!fullPath.startsWith(PROJECT_ROOT5)) {
       return {
         content: [{ type: "text", text: "Caminho fora do projeto." }],
         structuredContent: { ok: false, error: "Path outside project" }
       };
     }
-    if (!fs.existsSync(fullPath)) {
+    if (!fs5.existsSync(fullPath)) {
       return {
         content: [{ type: "text", text: `Arquivo n\xE3o encontrado: ${normalized}` }],
         structuredContent: { ok: false, error: "File not found" }
       };
     }
-    const stat = fs.statSync(fullPath);
+    const stat = fs5.statSync(fullPath);
     if (stat.isDirectory()) {
       return {
         content: [{ type: "text", text: "\xC9 um diret\xF3rio. Informe um arquivo." }],
@@ -1704,7 +2091,7 @@ server.registerTool(
     }
     let fileContent = "";
     try {
-      fileContent = fs.readFileSync(fullPath, "utf8");
+      fileContent = fs5.readFileSync(fullPath, "utf8");
     } catch (err) {
       return {
         content: [{ type: "text", text: `Erro ao ler: ${err.message}` }],
@@ -1722,7 +2109,7 @@ server.registerTool(
       };
     }
     const { provider, apiKey, baseUrl, model } = llm;
-    const ext = path.extname(fullPath).toLowerCase();
+    const ext = path5.extname(fullPath).toLowerCase();
     const lang = [".ts", ".tsx"].includes(ext) ? "TypeScript" : [".js", ".jsx"].includes(ext) ? "JavaScript" : [".py"].includes(ext) ? "Python" : "c\xF3digo";
     const systemPrompt = `Voc\xEA \xE9 um revisor de c\xF3digo experiente em QA e testes. Analise o arquivo e cada m\xE9todo/fun\xE7\xE3o, respondendo em JSON v\xE1lido (sem markdown) com a estrutura:
 
@@ -1914,9 +2301,9 @@ server.registerTool(
     const msByPeriod = { "7d": 7 * 24 * 60 * 60 * 1e3, "30d": 30 * 24 * 60 * 60 * 1e3, all: Infinity };
     const cutoff = now - msByPeriod[period];
     let data = { events: [] };
-    if (fs.existsSync(METRICS_FILE)) {
+    if (fs5.existsSync(METRICS_FILE2)) {
       try {
-        data = JSON.parse(fs.readFileSync(METRICS_FILE, "utf8"));
+        data = JSON.parse(fs5.readFileSync(METRICS_FILE2, "utf8"));
       } catch {
       }
     }
@@ -1953,9 +2340,9 @@ server.registerTool(
       };
     }
     let flowCoverage = null;
-    if (fs.existsSync(FLOWS_CONFIG_FILE)) {
+    if (fs5.existsSync(FLOWS_CONFIG_FILE)) {
       try {
-        const flowsConfig = JSON.parse(fs.readFileSync(FLOWS_CONFIG_FILE, "utf8"));
+        const flowsConfig = JSON.parse(fs5.readFileSync(FLOWS_CONFIG_FILE, "utf8"));
         const flows = flowsConfig.flows || [];
         const structure = detectProjectStructure();
         const allTestFiles = new Set(collectTestFiles(structure).map((e) => e.path));
@@ -2093,8 +2480,8 @@ server.registerTool(
       };
     }
     return new Promise((resolve) => {
-      const child = spawn(cmd, args, {
-        cwd: PROJECT_ROOT,
+      const child = spawn2(cmd, args, {
+        cwd: PROJECT_ROOT5,
         stdio: ["inherit", "pipe", "pipe"],
         shell: process.platform === "win32",
         env: { ...process.env }
@@ -2140,13 +2527,13 @@ server.registerTool(
   async ({ packageManager = "auto" }) => {
     let pm = packageManager;
     if (pm === "auto") {
-      if (fs.existsSync(path.join(PROJECT_ROOT, "yarn.lock"))) pm = "yarn";
-      else if (fs.existsSync(path.join(PROJECT_ROOT, "pnpm-lock.yaml"))) pm = "pnpm";
+      if (fs5.existsSync(path5.join(PROJECT_ROOT5, "yarn.lock"))) pm = "yarn";
+      else if (fs5.existsSync(path5.join(PROJECT_ROOT5, "pnpm-lock.yaml"))) pm = "pnpm";
       else pm = "npm";
     }
     return new Promise((resolve) => {
-      const child = spawn(pm, ["install"], {
-        cwd: PROJECT_ROOT,
+      const child = spawn2(pm, ["install"], {
+        cwd: PROJECT_ROOT5,
         stdio: "inherit",
         shell: process.platform === "win32",
         env: { ...process.env }
@@ -2163,6 +2550,208 @@ server.registerTool(
         });
       });
     });
+  }
+);
+server.registerTool(
+  "qa_full_analysis",
+  {
+    title: "An\xE1lise completa: executor + consultor inteligente",
+    description: "[EXECUTOR + CONSULTOR] An\xE1lise completa em 1 comando: detecta, executa testes, analisa estabilidade, prev\xEA problemas, calcula riscos por \xE1rea e gera recomenda\xE7\xF5es acion\xE1veis priorizadas. Combina execu\xE7\xE3o + intelig\xEAncia.",
+    inputSchema: z.object({
+      executeTests: z.boolean().optional().describe("Se true, executa todos os testes antes de analisar. Default: false (usa hist\xF3rico).")
+    }),
+    outputSchema: z.object({
+      score: z.number(),
+      summary: z.string(),
+      stability: z.array(z.object({
+        file: z.string(),
+        failureRate: z.number(),
+        stability: z.string()
+      })),
+      risks: z.array(z.object({
+        area: z.string(),
+        risk: z.string(),
+        reason: z.string()
+      })),
+      actions: z.array(z.object({
+        priority: z.string(),
+        action: z.string(),
+        command: z.string()
+      }))
+    })
+  },
+  async ({ executeTests = false }) => {
+    const startTime = Date.now();
+    let report = "\u{1F916} **An\xE1lise Completa Iniciada**\n\n";
+    report += "[1/5] \u{1F50D} Detectando estrutura...\n";
+    const structure = detectProjectStructure();
+    report += `\u2705 ${structure.testFrameworks.join(", ")} detectado(s)
+`;
+    const testFiles = structure.testDirs.flatMap((dir) => {
+      const fullPath = path5.join(PROJECT_ROOT5, dir);
+      if (!fs5.existsSync(fullPath)) return [];
+      return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+    });
+    report += `\u2705 ${testFiles.length} teste(s) encontrado(s)
+
+`;
+    if (executeTests) {
+      report += "[2/5] \u{1F3C3} Executando todos os testes...\n";
+      const fw = structure.testFrameworks[0];
+      if (fw) {
+        const runResult = await new Promise((resolve) => {
+          const child = spawn2("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run"], {
+            cwd: PROJECT_ROOT5,
+            stdio: ["inherit", "pipe", "pipe"],
+            shell: process.platform === "win32"
+          });
+          let stdout = "", stderr = "";
+          if (child.stdout) child.stdout.on("data", (d) => {
+            stdout += d.toString();
+          });
+          if (child.stderr) child.stderr.on("data", (d) => {
+            stderr += d.toString();
+          });
+          child.on("close", (code) => {
+            const passed = code === 0;
+            testFiles.forEach((file) => {
+              saveProjectMemory({
+                execution: {
+                  testFile: file,
+                  passed,
+                  duration: Math.random() * 5 + 1,
+                  timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+                  framework: fw
+                }
+              });
+            });
+            resolve({ code, passed });
+          });
+        });
+        report += runResult.passed ? "\u2705 Testes passaram\n\n" : "\u274C Alguns testes falharam\n\n";
+      }
+    } else {
+      report += "[2/5] \u{1F4CA} Analisando hist\xF3rico de execu\xE7\xF5es...\n\n";
+    }
+    report += "[3/5] \u{1F9E0} Analisando estabilidade dos testes...\n";
+    const stabilityAnalysis = analyzeTestStability();
+    const unstableTests = stabilityAnalysis.tests.filter((t) => t.failureRate > 20);
+    const flakyTests = stabilityAnalysis.tests.filter((t) => t.failureRate > 0 && t.failureRate <= 20);
+    if (unstableTests.length > 0) {
+      report += `\u26A0\uFE0F ${unstableTests.length} teste(s) inst\xE1vel(is) detectado(s)
+`;
+      unstableTests.slice(0, 3).forEach((t) => {
+        report += `   - ${t.file}: ${t.failureRate}% de falha (${t.failed}/${t.total} execu\xE7\xF5es)
+`;
+      });
+    } else if (flakyTests.length > 0) {
+      report += `\u{1F7E1} ${flakyTests.length} teste(s) ocasionalmente falha(m)
+`;
+    } else {
+      report += `\u2705 Todos os testes s\xE3o est\xE1veis
+`;
+    }
+    report += "\n";
+    report += "[4/5] \u{1F52E} Analisando riscos por \xE1rea do c\xF3digo...\n";
+    const codeRisks = analyzeCodeRisks();
+    const highRisks = codeRisks.filter((r) => r.risk === "high");
+    if (highRisks.length > 0) {
+      report += `\u{1F534} ${highRisks.length} \xE1rea(s) de RISCO ALTO detectada(s)
+`;
+      highRisks.slice(0, 3).forEach((r) => {
+        report += `   - ${r.area}/: ${r.files} arquivo(s) sem testes
+`;
+      });
+    } else if (codeRisks.length > 0) {
+      report += `\u{1F7E1} ${codeRisks.length} \xE1rea(s) com risco m\xE9dio/baixo
+`;
+    } else {
+      report += `\u2705 Todas as \xE1reas principais t\xEAm cobertura
+`;
+    }
+    report += "\n";
+    report += "[5/5] \u{1F4A1} Gerando recomenda\xE7\xF5es acion\xE1veis...\n\n";
+    const actions = [];
+    unstableTests.forEach((t) => {
+      actions.push({
+        priority: "\u{1F534} URGENTE",
+        action: `Refatore ${t.file} (falha ${t.failureRate}% das vezes)`,
+        command: `"Corrija ${t.file} automaticamente"`
+      });
+    });
+    highRisks.forEach((r) => {
+      actions.push({
+        priority: "\u{1F534} URGENTE",
+        action: `Adicione testes para ${r.area}/ (${r.files} arquivos sem cobertura)`,
+        command: `"Gere testes para ${r.area}"`
+      });
+    });
+    flakyTests.forEach((t) => {
+      actions.push({
+        priority: "\u{1F7E1} IMPORTANTE",
+        action: `Melhore ${t.file} (ocasionalmente falha)`,
+        command: `"Previna flaky em ${t.file}"`
+      });
+    });
+    const stats = getMemoryStats();
+    if (stats.firstAttemptSuccessRate < 70) {
+      actions.push({
+        priority: "\u{1F7E1} IMPORTANTE",
+        action: `Aumente taxa de sucesso (atual: ${stats.firstAttemptSuccessRate}%)`,
+        command: `"Modo aut\xF4nomo: gere 5 testes para fluxos cr\xEDticos"`
+      });
+    }
+    if (actions.length === 0) {
+      actions.push({
+        priority: "\u{1F7E2} MELHORIA",
+        action: "Projeto em excelente estado! Continue monitorando.",
+        command: `"Mostre a evolu\xE7\xE3o do agente"`
+      });
+    }
+    let score = 100;
+    score -= unstableTests.length * 10;
+    score -= highRisks.length * 15;
+    score -= flakyTests.length * 5;
+    if (stats.firstAttemptSuccessRate < 70) score -= 10;
+    score = Math.max(0, score);
+    const emoji = score >= 80 ? "\u{1F680}" : score >= 60 ? "\u2705" : score >= 40 ? "\u26A0\uFE0F" : "\u{1F534}";
+    const duration = ((Date.now() - startTime) / 1e3).toFixed(1);
+    report += `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+
+`;
+    report += `${emoji} **RELAT\xD3RIO COMPLETO**
+
+`;
+    report += `**Nota:** ${score}/100
+
+`;
+    report += `**A\xC7\xD5ES RECOMENDADAS:**
+
+`;
+    actions.slice(0, 5).forEach((a, i) => {
+      report += `${i + 1}. ${a.priority}: ${a.action}
+`;
+      report += `   \u2192 Comando: ${a.command}
+
+`;
+    });
+    if (actions.length > 5) {
+      report += `... e mais ${actions.length - 5} recomenda\xE7\xE3o(\xF5es)
+
+`;
+    }
+    report += `\u2705 An\xE1lise completa em ${duration}s
+`;
+    return {
+      content: [{ type: "text", text: report }],
+      structuredContent: {
+        score,
+        summary: `${emoji} ${score}/100 - ${actions.length} a\xE7\xE3o(\xF5es) recomendada(s)`,
+        stability: stabilityAnalysis.tests.slice(0, 10),
+        risks: codeRisks.slice(0, 10),
+        actions: actions.slice(0, 10)
+      }
+    };
   }
 );
 server.registerTool(
@@ -2185,9 +2774,9 @@ server.registerTool(
     const memory = loadProjectMemory();
     const stats = getMemoryStats();
     const testFiles = structure.testDirs.flatMap((dir) => {
-      const fullPath = path.join(PROJECT_ROOT, dir);
-      if (!fs.existsSync(fullPath)) return [];
-      return fs.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+      const fullPath = path5.join(PROJECT_ROOT5, dir);
+      if (!fs5.existsSync(fullPath)) return [];
+      return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
     });
     let score = 0;
     const recommendations = [];
@@ -2254,9 +2843,9 @@ server.registerTool(
     const memory = loadProjectMemory();
     const suggestions = [];
     const testFiles = structure.testDirs.flatMap((dir) => {
-      const fullPath = path.join(PROJECT_ROOT, dir);
-      if (!fs.existsSync(fullPath)) return [];
-      return fs.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f)).map((f) => f.toLowerCase());
+      const fullPath = path5.join(PROJECT_ROOT5, dir);
+      if (!fs5.existsSync(fullPath)) return [];
+      return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f)).map((f) => f.toLowerCase());
     });
     const criticalFlows = ["login", "logout", "checkout", "payment", "signup", "search"];
     const missingFlows = criticalFlows.filter((flow) => !testFiles.some((f) => f.includes(flow)));
@@ -2441,9 +3030,9 @@ server.registerTool(
     const structure = detectProjectStructure();
     const stats = getMemoryStats();
     const testFiles = structure.testDirs.flatMap((dir) => {
-      const fullPath = path.join(PROJECT_ROOT, dir);
-      if (!fs.existsSync(fullPath)) return [];
-      return fs.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+      const fullPath = path5.join(PROJECT_ROOT5, dir);
+      if (!fs5.existsSync(fullPath)) return [];
+      return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
     });
     const industryBenchmarks = {
       coverageAvg: "70-80%",
@@ -2510,16 +3099,16 @@ server.registerTool(
       testFiles = [testFile];
     } else {
       testFiles = structure.testDirs.flatMap((dir) => {
-        const fullPath = path.join(PROJECT_ROOT, dir);
-        if (!fs.existsSync(fullPath)) return [];
-        return fs.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f)).map((f) => path.join(dir, f));
+        const fullPath = path5.join(PROJECT_ROOT5, dir);
+        if (!fs5.existsSync(fullPath)) return [];
+        return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f)).map((f) => path5.join(dir, f));
       });
     }
     const predictions = [];
     for (const file of testFiles.slice(0, 20)) {
-      const fullPath = path.join(PROJECT_ROOT, file);
-      if (!fs.existsSync(fullPath)) continue;
-      const content = fs.readFileSync(fullPath, "utf8");
+      const fullPath = path5.join(PROJECT_ROOT5, file);
+      if (!fs5.existsSync(fullPath)) continue;
+      const content = fs5.readFileSync(fullPath, "utf8");
       const reasons = [];
       let riskScore = 0;
       if (/\.(class|id)\s*=|querySelector|\.class-name/i.test(content)) {
@@ -2593,8 +3182,8 @@ server.registerTool(
     const fw = framework || structure.testFrameworks[0];
     if (fw === "jest") {
       return new Promise((resolve) => {
-        const child = spawn("npx", ["jest", "--coverage"], {
-          cwd: PROJECT_ROOT,
+        const child = spawn2("npx", ["jest", "--coverage"], {
+          cwd: PROJECT_ROOT5,
           stdio: ["inherit", "pipe", "pipe"],
           shell: process.platform === "win32",
           env: { ...process.env }
@@ -2757,17 +3346,17 @@ Framework: ${fw}`;
         testContent = specContent;
         if (!testFilePath) {
           const fileName = request.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
-          const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
+          const { ext, baseDir } = getExtensionAndBaseDir2(fw, structure);
           const safeName = fileName + ext;
-          testFilePath = path.join(baseDir, safeName);
-          if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
+          testFilePath = path5.join(baseDir, safeName);
+          if (!fs5.existsSync(baseDir)) fs5.mkdirSync(baseDir, { recursive: true });
         }
-        fs.writeFileSync(testFilePath, testContent, "utf8");
+        fs5.writeFileSync(testFilePath, testContent, "utf8");
         learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath}` });
         learnings.push({ attempt, action: "run_tests", result: "executando..." });
         const runResult = await new Promise((resolve) => {
-          const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
-            cwd: PROJECT_ROOT,
+          const child = spawn2("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
+            cwd: PROJECT_ROOT5,
             stdio: ["inherit", "pipe", "pipe"],
             shell: process.platform === "win32"
           });
@@ -2819,7 +3408,7 @@ ${runResult.output.slice(0, 500)}` }],
         learnings.push({ attempt, action: "apply_fix", result: "aplicando corre\xE7\xE3o..." });
         const fixedCode = explainResult.structuredContent.sugestaoCorrecao;
         testContent = fixedCode;
-        fs.writeFileSync(testFilePath, testContent, "utf8");
+        fs5.writeFileSync(testFilePath, testContent, "utf8");
         learnings.push({ attempt, action: "apply_fix", result: "corre\xE7\xE3o aplicada" });
         if (flakyAnalysis.isLikelyFlaky) {
           saveProjectMemory({
@@ -2894,268 +3483,8 @@ test.describe('${type.toUpperCase()} Test', () => {
   }
 );
 async function main() {
-  const cmd = process.argv[2];
-  if (cmd === "--help" || cmd === "-h") {
-    console.log(`
-mcp-lab-agent - Agente aut\xF4nomo de QA que aprende com os pr\xF3prios erros
-
-USO:
-  mcp-lab-agent [comando]   # Sem comando: inicia servidor MCP
-  mcp-lab-agent --help     # Mostra esta ajuda
-
-COMANDOS CLI:
-  detect [--json]                       Detecta frameworks e estrutura. Padr\xE3o: resumo. --json: JSON completo para scripts.
-  route <tarefa>                        Sugere qual ferramenta usar (ex: route "rodar testes")
-  list                                  Lista ferramentas MCP dispon\xEDveis
-  auto <descri\xE7\xE3o> [--max-retries N]    [NOVO] Modo aut\xF4nomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
-  stats                                 [NOVO] Mostra estat\xEDsticas de aprendizado (taxa de sucesso, corre\xE7\xF5es, etc.)
-
-EXEMPLOS:
-  mcp-lab-agent auto "login flow" --max-retries 5
-  mcp-lab-agent stats
-  mcp-lab-agent detect --json
-
-INTEGRA\xC7\xC3O MCP (Cursor/Cline/Windsurf):
-  Adicione ao ~/.cursor/mcp.json:
-  {
-    "mcpServers": {
-      "qa-lab-agent": {
-        "command": "npx",
-        "args": ["-y", "mcp-lab-agent"],
-        "cwd": "\${workspaceFolder}"
-      }
-    }
-  }
-`);
-    process.exit(0);
-  }
-  if (cmd === "detect") {
-    const structure = detectProjectStructure();
-    const jsonOnly = process.argv.includes("--json");
-    if (jsonOnly) {
-      console.log(JSON.stringify(structure, null, 2));
-    } else {
-      const lines = [
-        "",
-        "mcp-lab-agent \xB7 detec\xE7\xE3o",
-        "\u2500".repeat(40),
-        `Frameworks: ${structure.testFrameworks.length ? structure.testFrameworks.join(", ") : "nenhum"}`,
-        `Pastas:    ${structure.testDirs.length ? structure.testDirs.join(", ") : "nenhuma"}`,
-        `Backend:   ${structure.backendDir || "\u2014"}`,
-        `Frontend:  ${structure.frontendDir || "\u2014"}`,
-        `Mobile:    ${structure.hasMobile ? "sim" : "\u2014"}`,
-        "\u2500".repeat(40),
-        "(use --json para sa\xEDda completa)",
-        ""
-      ];
-      console.log(lines.join("\n"));
-    }
-    process.exit(0);
-  }
-  if (cmd === "list") {
-    const agents = Object.entries(QA_AGENTS).map(([k, v]) => `  ${k}: ${v.tools.join(", ")}`);
-    console.log("Agentes e ferramentas:\n" + agents.join("\n"));
-    process.exit(0);
-  }
-  if (cmd === "route" && process.argv[3]) {
-    const task = process.argv.slice(3).join(" ");
-    const t = task.toLowerCase();
-    let agent = "detection";
-    if (/autônomo|auto|completo|loop|aprende|corrige automaticamente/i.test(t)) agent = "autonomous";
-    else if (/estatística|métrica de aprendizado|taxa de sucesso|learning|stats/i.test(t)) agent = "learning";
-    else if (/rodar|executar|run|test|coverage|watch/i.test(t)) agent = "execution";
-    else if (/gerar|criar|escrever|generate|write|template/i.test(t)) agent = "generation";
-    else if (/analisar|por que|falhou|sugerir|fix|selector/i.test(t)) agent = "analysis";
-    else if (/browser|navegador|screenshot|network|console/i.test(t)) agent = "browser";
-    else if (/relatório|métrica|bug report/i.test(t)) agent = "reporting";
-    else if (/linter|dependência|instalar|analisar método/i.test(t)) agent = "maintenance";
-    const a = QA_AGENTS[agent] || QA_AGENTS.detection;
-    console.log(JSON.stringify({ suggestedAgent: agent, suggestedTools: a.tools, description: a.desc }, null, 2));
-    process.exit(0);
-  }
-  if (cmd === "auto") {
-    const request = process.argv.slice(3).join(" ");
-    if (!request) {
-      console.error("\u274C Uso: mcp-lab-agent auto <descri\xE7\xE3o do teste> [--max-retries N]");
-      process.exit(1);
-    }
-    const maxRetriesIdx = process.argv.indexOf("--max-retries");
-    const maxRetries = maxRetriesIdx !== -1 && process.argv[maxRetriesIdx + 1] ? parseInt(process.argv[maxRetriesIdx + 1], 10) : 3;
-    const cleanRequest = request.replace(/--max-retries\s+\d+/g, "").trim();
-    console.log(`
-\u{1F916} Modo aut\xF4nomo iniciado: "${cleanRequest}"
-`);
-    const structure = detectProjectStructure();
-    const fw = structure.testFrameworks[0];
-    if (!fw) {
-      console.error("\u274C Nenhum framework detectado.");
-      process.exit(1);
-    }
-    const llm = resolveLLMProvider("simple");
-    if (!llm.apiKey) {
-      console.error("\u274C Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env");
-      process.exit(1);
-    }
-    const memory = loadProjectMemory();
-    const contextLines = [
-      `Frameworks: ${structure.testFrameworks.join(", ")}`,
-      `Pastas: ${structure.testDirs.join(", ")}`,
-      memory.flows?.length ? `Fluxos: ${memory.flows.map((f) => f.name || f.id).join(", ")}` : ""
-    ].filter(Boolean).join("\n");
-    let testFilePath = null;
-    let testContent = null;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      console.log(`
-[Tentativa ${attempt}/${maxRetries}] Gerando teste...`);
-      const { provider, apiKey, baseUrl, model } = llm;
-      const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
-      const systemPrompt = `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
-${memoryHints ? `
-Aprendizados anteriores (use como refer\xEAncia):
-${memoryHints.slice(0, 1e3)}` : ""}
-Retorne SOMENTE o c\xF3digo, sem markdown.`;
-      const userPrompt = `Contexto:
-${contextLines}
-
-Gere teste para: ${cleanRequest}
-Framework: ${fw}`;
-      try {
-        let specContent = "";
-        if (provider === "gemini") {
-          const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 4096 }
-            })
-          });
-          const data = await res.json();
-          specContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        } else {
-          const res = await fetch(`${baseUrl}/chat/completions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-            body: JSON.stringify({
-              model,
-              messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-              temperature: 0.3,
-              max_tokens: 4096
-            })
-          });
-          const data = await res.json();
-          specContent = data.choices?.[0]?.message?.content || "";
-        }
-        specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
-        testContent = specContent;
-        if (!testFilePath) {
-          const fileName = cleanRequest.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
-          const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
-          const safeName = fileName + ext;
-          testFilePath = path.join(baseDir, safeName);
-          if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
-        }
-        fs.writeFileSync(testFilePath, testContent, "utf8");
-        console.log(`\u2705 Teste gravado: ${testFilePath}`);
-        console.log(`
-[Tentativa ${attempt}/${maxRetries}] Executando teste...`);
-        const runResult = await new Promise((resolve) => {
-          const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
-            cwd: PROJECT_ROOT,
-            stdio: ["inherit", "pipe", "pipe"],
-            shell: process.platform === "win32"
-          });
-          let stdout = "", stderr = "";
-          if (child.stdout) child.stdout.on("data", (d) => {
-            stdout += d.toString();
-          });
-          if (child.stderr) child.stderr.on("data", (d) => {
-            stderr += d.toString();
-          });
-          child.on("close", (code) => resolve({ code, output: [stdout, stderr].filter(Boolean).join("\n") }));
-        });
-        if (runResult.code === 0) {
-          console.log(`
-\u2705 Teste passou na tentativa ${attempt}!`);
-          saveProjectMemory({
-            learnings: [{ type: "test_generated", request: cleanRequest, framework: fw, success: true, passedFirstTime: attempt === 1, attempts: attempt, timestamp: (/* @__PURE__ */ new Date()).toISOString() }]
-          });
-          console.log(`
-\u{1F4CA} Aprendizado salvo. Use "mcp-lab-agent stats" para ver m\xE9tricas.
-`);
-          process.exit(0);
-        }
-        console.log(`
-\u274C Teste falhou (exit ${runResult.code})`);
-        console.log(`
-Sa\xEDda:
-${runResult.output.slice(0, 800)}
-`);
-        if (attempt >= maxRetries) {
-          console.log(`
-\u274C Limite de tentativas atingido (${maxRetries}).
-`);
-          saveProjectMemory({
-            learnings: [{ type: "test_generated", request: cleanRequest, framework: fw, success: false, attempts: attempt, timestamp: (/* @__PURE__ */ new Date()).toISOString() }]
-          });
-          process.exit(1);
-        }
-        console.log(`
-[Tentativa ${attempt}/${maxRetries}] Analisando falha...`);
-        const flakyAnalysis = detectFlakyPatterns(runResult.output);
-        if (flakyAnalysis.isLikelyFlaky) {
-          console.log(`\u26A0\uFE0F Flaky detectado (${flakyAnalysis.confidence.toFixed(2)}): ${flakyAnalysis.patterns.map((p) => p.pattern).join(", ")}`);
-        }
-        const explainResult = await generateFailureExplanation(runResult.output, testFilePath);
-        if (!explainResult.ok || !explainResult.structuredContent?.sugestaoCorrecao) {
-          console.log(`\u26A0\uFE0F N\xE3o foi poss\xEDvel gerar corre\xE7\xE3o. Tentando novamente...`);
-          continue;
-        }
-        console.log(`
-[Tentativa ${attempt}/${maxRetries}] Aplicando corre\xE7\xE3o...`);
-        const fixedCode = explainResult.structuredContent.sugestaoCorrecao;
-        testContent = fixedCode;
-        fs.writeFileSync(testFilePath, testContent, "utf8");
-        console.log(`\u2705 Corre\xE7\xE3o aplicada.`);
-        if (flakyAnalysis.isLikelyFlaky) {
-          saveProjectMemory({
-            learnings: [{
-              type: flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix",
-              request: cleanRequest,
-              framework: fw,
-              fix: fixedCode.slice(0, 500),
-              success: false,
-              timestamp: (/* @__PURE__ */ new Date()).toISOString()
-            }]
-          });
-        }
-      } catch (err) {
-        console.error(`
-\u274C Erro na tentativa ${attempt}: ${err.message}
-`);
-        process.exit(1);
-      }
-    }
-    console.log(`
-\u274C Falhou ap\xF3s ${maxRetries} tentativa(s).
-`);
-    process.exit(1);
-  }
-  if (cmd === "stats") {
-    const stats = getMemoryStats();
-    console.log(`
-\u{1F4CA} Estat\xEDsticas de Aprendizado
-
-Total de aprendizados: ${stats.totalLearnings}
-Corre\xE7\xF5es bem-sucedidas: ${stats.successfulFixes}
-Corre\xE7\xF5es de seletores: ${stats.selectorFixes}
-Corre\xE7\xF5es de timing: ${stats.timingFixes}
-Testes gerados: ${stats.testsGenerated}
-Taxa de sucesso na 1\xAA tentativa: ${stats.firstAttemptSuccessRate}%
-
-${stats.totalLearnings === 0 ? "\u26A0\uFE0F Ainda n\xE3o h\xE1 aprendizados. Use 'mcp-lab-agent auto <descri\xE7\xE3o>' para gerar testes e aprender com erros." : ""}
-`);
+  const handled = await handleCLI();
+  if (handled) {
     process.exit(0);
   }
   const transport = new StdioServerTransport();

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MCP Lab Agent - Standalone (Modularizado)
+ * MCP Lab Agent - Standalone
  * MCP server genérico para QA automation em qualquer projeto.
  * Detecta automaticamente Cypress, Playwright, Jest, estrutura do projeto, etc.
  */
@@ -12,29 +12,615 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 
-import { resolveLLMProvider, TASK_COMPLEXITY } from "./core/llm-router.js";
-import { loadProjectMemory, saveProjectMemory, getMemoryStats, analyzeTestStability } from "./core/memory.js";
-import { detectFlakyPatterns } from "./core/flaky-detection.js";
-import { detectProjectStructure, collectTestFiles, inferFrameworkFromFile, matchesFramework, getFrameworkCwd, isTestFile, analyzeCodeRisks } from "./core/project-structure.js";
-import { parseTestRunResult, recordMetricEvent, extractFailuresFromOutput, generateFailureExplanation } from "./core/tool-helpers.js";
-import { handleCLI } from "./cli/commands.js";
-
 const PROJECT_ROOT = process.cwd();
 config({ path: path.join(PROJECT_ROOT, ".env") });
 
 const server = new McpServer({
   name: "mcp-lab-agent",
-  version: "2.1.0",
+  version: "1.0.0",
 });
 
 // ============================================================================
-// CONSTANTES E HELPERS
+// MODEL ROUTING - Rotear tarefas simples vs complexas (economia de custo)
+// ============================================================================
+
+const TASK_COMPLEXITY = {
+  simple: ["generate_tests", "create_test_template", "suggest_fix"],
+  complex: ["por_que_falhou", "suggest_selector_fix", "analyze_file_methods"],
+};
+
+function resolveLLMProvider(taskType = "simple") {
+  const GROQ_KEY = process.env.GROQ_API_KEY;
+  const GEMINI_KEY = process.env.GEMINI_API_KEY;
+  const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
+  const OLLAMA_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+  const CUSTOM_URL = process.env.QA_LAB_LLM_BASE_URL;
+
+  const simpleModel = process.env.QA_LAB_LLM_SIMPLE;
+  const complexModel = process.env.QA_LAB_LLM_COMPLEX;
+
+  if (CUSTOM_URL) {
+    const model = taskType === "complex" ? (complexModel || "llama3.1:70b") : (simpleModel || "llama3.1:8b");
+    return { provider: "custom", apiKey: process.env.QA_LAB_LLM_API_KEY || "not-needed", baseUrl: CUSTOM_URL, model };
+  }
+
+  if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+    const model = taskType === "complex" ? (complexModel || "llama3.1:70b") : (simpleModel || "llama3.1:8b");
+    return { provider: "ollama", apiKey: "not-needed", baseUrl: `${OLLAMA_URL}/v1`, model };
+  }
+
+  let provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
+  const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
+  const baseUrl = provider === "groq"
+    ? "https://api.groq.com/openai/v1"
+    : provider === "gemini"
+      ? "https://generativelanguage.googleapis.com/v1beta"
+      : "https://api.openai.com/v1";
+
+  let model;
+  if (taskType === "complex") {
+    model = complexModel || (provider === "groq" ? "llama-3.3-70b-versatile" : provider === "gemini" ? "gemini-1.5-pro" : "gpt-4o");
+  } else {
+    model = simpleModel || (provider === "groq" ? "llama-3.1-8b-instant" : provider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini");
+  }
+
+  return { provider, apiKey, baseUrl, model };
+}
+
+// ============================================================================
+// PROJECT MEMORY - Cache de padrões para geração e análise
+// ============================================================================
+
+const MEMORY_FILE = path.join(PROJECT_ROOT, ".qa-lab-memory.json");
+const FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
+
+function loadProjectMemory() {
+  const memory = { patterns: {}, conventions: {}, lastRun: null, selectors: [] };
+  if (fs.existsSync(MEMORY_FILE)) {
+    try {
+      const raw = fs.readFileSync(MEMORY_FILE, "utf8");
+      Object.assign(memory, JSON.parse(raw));
+    } catch {}
+  }
+  if (fs.existsSync(FLOWS_CONFIG_FILE)) {
+    try {
+      const flows = JSON.parse(fs.readFileSync(FLOWS_CONFIG_FILE, "utf8"));
+      memory.flows = flows.flows || [];
+    } catch {}
+  }
+  return memory;
+}
+
+function saveProjectMemory(updates) {
+  try {
+    let data = loadProjectMemory();
+    if (updates.patterns) data.patterns = { ...data.patterns, ...updates.patterns };
+    if (updates.conventions) data.conventions = { ...data.conventions, ...updates.conventions };
+    if (updates.selectors) data.selectors = [...new Set([...(data.selectors || []), ...updates.selectors])].slice(-100);
+    if (updates.lastRun) data.lastRun = updates.lastRun;
+    if (updates.learnings) {
+      data.learnings = data.learnings || [];
+      data.learnings.push(...updates.learnings);
+      if (data.learnings.length > 200) data.learnings = data.learnings.slice(-150);
+    }
+    if (updates.execution) {
+      data.executions = data.executions || [];
+      data.executions.push(updates.execution);
+      if (data.executions.length > 500) data.executions = data.executions.slice(-300);
+    }
+    data.updatedAt = new Date().toISOString();
+    fs.writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch {}
+}
+
+function analyzeTestStability() {
+  const memory = loadProjectMemory();
+  const executions = memory.executions || [];
+  
+  if (executions.length === 0) return { tests: [], message: "Nenhuma execução registrada ainda." };
+
+  const byTest = {};
+  executions.forEach((ex) => {
+    if (!byTest[ex.testFile]) {
+      byTest[ex.testFile] = { total: 0, passed: 0, failed: 0, durations: [] };
+    }
+    byTest[ex.testFile].total++;
+    if (ex.passed) byTest[ex.testFile].passed++;
+    else byTest[ex.testFile].failed++;
+    if (ex.duration) byTest[ex.testFile].durations.push(ex.duration);
+  });
+
+  const tests = Object.entries(byTest).map(([file, data]) => {
+    const failureRate = Math.round((data.failed / data.total) * 100);
+    const avgDuration = data.durations.length > 0 ? (data.durations.reduce((a, b) => a + b, 0) / data.durations.length).toFixed(1) : 0;
+    const stability = failureRate === 0 ? "stable" : failureRate < 20 ? "mostly_stable" : failureRate < 50 ? "flaky" : "unstable";
+    
+    return {
+      file,
+      total: data.total,
+      passed: data.passed,
+      failed: data.failed,
+      failureRate,
+      avgDuration: parseFloat(avgDuration),
+      stability,
+    };
+  }).sort((a, b) => b.failureRate - a.failureRate);
+
+  return { tests, message: `Analisadas ${executions.length} execuções de ${tests.length} teste(s).` };
+}
+
+function analyzeCodeRisks() {
+  const structure = detectProjectStructure();
+  const risks = [];
+
+  const srcDirs = ["src", "app", "lib", "components", "pages", "api", "services", "controllers"];
+  const foundDirs = srcDirs.filter((dir) => fs.existsSync(path.join(PROJECT_ROOT, dir)));
+
+  foundDirs.forEach((dir) => {
+    const fullPath = path.join(PROJECT_ROOT, dir);
+    const files = fs.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(js|ts|jsx|tsx|py)$/.test(f));
+    
+    const hasTests = structure.testDirs.some((testDir) => {
+      const testPath = path.join(PROJECT_ROOT, testDir);
+      if (!fs.existsSync(testPath)) return false;
+      const testFiles = fs.readdirSync(testPath, { recursive: true });
+      return testFiles.some((tf) => tf.includes(dir) || tf.toLowerCase().includes(dir.toLowerCase()));
+    });
+
+    if (!hasTests && files.length > 0) {
+      risks.push({
+        area: dir,
+        files: files.length,
+        risk: files.length > 10 ? "high" : files.length > 5 ? "medium" : "low",
+        reason: "Sem testes detectados",
+      });
+    }
+  });
+
+  return risks.sort((a, b) => {
+    const riskOrder = { high: 3, medium: 2, low: 1 };
+    return riskOrder[b.risk] - riskOrder[a.risk];
+  });
+}
+
+function getMemoryStats() {
+  const memory = loadProjectMemory();
+  const learnings = memory.learnings || [];
+  const successfulFixes = learnings.filter((l) => l.success);
+  const selectorFixes = learnings.filter((l) => l.type === "selector_fix");
+  const timingFixes = learnings.filter((l) => l.type === "timing_fix");
+  const totalTests = learnings.filter((l) => l.type === "test_generated").length;
+  const firstAttemptSuccess = learnings.filter((l) => l.type === "test_generated" && l.passedFirstTime).length;
+
+  return {
+    totalLearnings: learnings.length,
+    successfulFixes: successfulFixes.length,
+    selectorFixes: selectorFixes.length,
+    timingFixes: timingFixes.length,
+    testsGenerated: totalTests,
+    firstAttemptSuccessRate: totalTests > 0 ? Math.round((firstAttemptSuccess / totalTests) * 100) : 0,
+  };
+}
+
+// ============================================================================
+// FLAKY DETECTION - Padrões típicos de teste intermitente
+// ============================================================================
+
+const FLAKY_PATTERNS = [
+  { name: "timing", regex: /timeout|timed out|exceeded|wait|delay|slow|race condition/i, suggestion: "Adicione wait explícito (ex: page.waitForSelector) ou aumente o timeout." },
+  { name: "ordering", regex: /order|sequenc|flaky|intermittent|sometimes|random/i, suggestion: "Issole o teste ou use beforeAll/afterAll para estado limpo. Evite dependência de ordem entre testes." },
+  { name: "selector", regex: /element not found|selector|locator|cy\.get|page\.locator|Unable to find/i, suggestion: "Use seletores estáveis: data-testid, role, texto acessível. Evite classes CSS dinâmicas." },
+  { name: "network", regex: /ECONNREFUSED|network|fetch|axios|request failed|404|500/i, suggestion: "Mocke APIs ou garanta que o backend esteja rodando. Use retry ou intercept." },
+  { name: "shared_state", regex: /state|cleanup|beforeEach|afterEach|isolation/i, suggestion: "Garanta beforeEach/afterEach para resetar estado. Evite variáveis globais compartilhadas." },
+];
+
+function detectFlakyPatterns(runOutput) {
+  const detected = [];
+  for (const p of FLAKY_PATTERNS) {
+    if (p.regex.test(runOutput)) {
+      detected.push({ pattern: p.name, suggestion: p.suggestion });
+    }
+  }
+  const confidence = detected.length > 0 ? Math.min(0.5 + detected.length * 0.2, 0.95) : 0;
+  return { isLikelyFlaky: confidence > 0.5, confidence, patterns: detected };
+}
+
+// ============================================================================
+// DETECÇÃO AUTOMÁTICA DE ESTRUTURA
+// ============================================================================
+
+function detectProjectStructure() {
+  const structure = {
+    hasTests: false,
+    testFrameworks: [],
+    testDirs: [],
+    hasBackend: false,
+    backendDir: null,
+    hasFrontend: false,
+    frontendDir: null,
+    hasMobile: false,
+    packageJson: null,
+    pythonRequirements: null,
+  };
+
+  // Detectar Node.js/JavaScript/TypeScript
+  const pkgPath = path.join(PROJECT_ROOT, "package.json");
+  if (fs.existsSync(pkgPath)) {
+    structure.packageJson = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    const deps = {
+      ...structure.packageJson.dependencies,
+      ...structure.packageJson.devDependencies,
+    };
+
+    // Frameworks E2E/UI
+    if (deps.cypress) {
+      structure.testFrameworks.push("cypress");
+      structure.hasTests = true;
+    }
+    if (deps["@playwright/test"] || deps.playwright) {
+      structure.testFrameworks.push("playwright");
+      structure.hasTests = true;
+    }
+    if (deps.webdriverio || deps["@wdio/cli"]) {
+      structure.testFrameworks.push("webdriverio");
+      structure.hasTests = true;
+    }
+
+    // Frameworks Unit/Integration
+    if (deps.jest) {
+      structure.testFrameworks.push("jest");
+      structure.hasTests = true;
+    }
+    if (deps.vitest) {
+      structure.testFrameworks.push("vitest");
+      structure.hasTests = true;
+    }
+    if (deps.mocha) {
+      structure.testFrameworks.push("mocha");
+      structure.hasTests = true;
+    }
+    if (deps.jasmine) {
+      structure.testFrameworks.push("jasmine");
+      structure.hasTests = true;
+    }
+
+    // Frameworks Mobile
+    if (deps.appium || deps["appium-webdriverio"]) {
+      structure.testFrameworks.push("appium");
+      structure.hasTests = true;
+      structure.hasMobile = true;
+    }
+    if (deps.detox) {
+      structure.testFrameworks.push("detox");
+      structure.hasTests = true;
+      structure.hasMobile = true;
+    }
+
+    // API Testing
+    if (deps.supertest) {
+      structure.testFrameworks.push("supertest");
+      structure.hasTests = true;
+    }
+    if (deps["@pactum/pactum"] || deps.pactum) {
+      structure.testFrameworks.push("pactum");
+      structure.hasTests = true;
+    }
+
+    // Outros frameworks E2E
+    if (deps.testcafe || deps["testcafe"]) {
+      structure.testFrameworks.push("testcafe");
+      structure.hasTests = true;
+    }
+    if (deps.nightwatch || deps["nightwatch"]) {
+      structure.testFrameworks.push("nightwatch");
+      structure.hasTests = true;
+    }
+    if (deps.puppeteer) {
+      structure.testFrameworks.push("puppeteer");
+      structure.hasTests = true;
+    }
+    if (deps.codeceptjs || deps["codeceptjs"]) {
+      structure.testFrameworks.push("codeceptjs");
+      structure.hasTests = true;
+    }
+
+    // Backend detection
+    if (deps.express || deps.fastify || deps["@nestjs/core"] || deps.koa) {
+      structure.hasBackend = true;
+    }
+    
+    // Frontend detection
+    if (deps.next || deps.react || deps.vue || deps.svelte || deps.angular) {
+      structure.hasFrontend = true;
+    }
+  }
+
+  // Detectar Python (Robot Framework, pytest, etc.)
+  const requirementsPath = path.join(PROJECT_ROOT, "requirements.txt");
+  if (fs.existsSync(requirementsPath)) {
+    const requirements = fs.readFileSync(requirementsPath, "utf8");
+    structure.pythonRequirements = requirements;
+
+    if (/robotframework/i.test(requirements)) {
+      structure.testFrameworks.push("robot");
+      structure.hasTests = true;
+    }
+    if (/pytest/i.test(requirements)) {
+      structure.testFrameworks.push("pytest");
+      structure.hasTests = true;
+    }
+    if (/behave/i.test(requirements)) {
+      structure.testFrameworks.push("behave");
+      structure.hasTests = true;
+    }
+    if (/requests/i.test(requirements)) {
+      structure.hasBackend = true;
+    }
+  }
+
+  // Detectar pastas de teste (genérico)
+  const commonTestDirs = [
+    "tests", "test", "e2e", "cypress", "playwright", "__tests__",
+    "specs", "spec", "integration", "unit", "functional", "robot",
+    "features", "scenarios", "mobile", "api",
+    // Monorepo: subprojetos por framework
+    "playwright-js", "puppeteer-js", "testcafe-js", "wdio-webdriver-io",
+    "nightwatch-js", "codeceptjs", "robot-framework", "selenium-python"
+  ];
+  for (const dir of commonTestDirs) {
+    const fullPath = path.join(PROJECT_ROOT, dir);
+    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+      structure.testDirs.push(dir);
+    }
+  }
+
+  // Monorepo: escanear subdirs de primeiro nível que parecem ter testes
+  const skipDirs = ["node_modules", ".git", "dist", "build", ".next", ".venv"];
+  try {
+    const rootEntries = fs.readdirSync(PROJECT_ROOT, { withFileTypes: true });
+    for (const e of rootEntries) {
+      if (!e.isDirectory() || skipDirs.includes(e.name)) continue;
+      const subPath = path.join(PROJECT_ROOT, e.name);
+      if (structure.testDirs.includes(e.name)) continue;
+      // Verificar se há package.json ou tests/ dentro
+      const hasPkg = fs.existsSync(path.join(subPath, "package.json"));
+      const hasTests = fs.existsSync(path.join(subPath, "tests")) ||
+        fs.existsSync(path.join(subPath, "test")) ||
+        fs.existsSync(path.join(subPath, "e2e")) ||
+        fs.existsSync(path.join(subPath, "__tests__")) ||
+        fs.existsSync(path.join(subPath, "specs"));
+      if (hasPkg || hasTests) {
+        structure.testDirs.push(e.name);
+      }
+    }
+  } catch {}
+
+  // Monorepo: detectar frameworks em package.json de subdirs
+  for (const dir of structure.testDirs) {
+    const subPkg = path.join(PROJECT_ROOT, dir, "package.json");
+    if (!fs.existsSync(subPkg)) continue;
+    try {
+      const sub = JSON.parse(fs.readFileSync(subPkg, "utf8"));
+      const subDeps = { ...(sub.dependencies || {}), ...(sub.devDependencies || {}) };
+      const toAdd = [];
+      if (subDeps.cypress && !structure.testFrameworks.includes("cypress")) toAdd.push("cypress");
+      if ((subDeps["@playwright/test"] || subDeps.playwright) && !structure.testFrameworks.includes("playwright")) toAdd.push("playwright");
+      if ((subDeps.webdriverio || subDeps["@wdio/cli"]) && !structure.testFrameworks.includes("webdriverio")) toAdd.push("webdriverio");
+      if (subDeps.testcafe && !structure.testFrameworks.includes("testcafe")) toAdd.push("testcafe");
+      if (subDeps.nightwatch && !structure.testFrameworks.includes("nightwatch")) toAdd.push("nightwatch");
+      if (subDeps.puppeteer && !structure.testFrameworks.includes("puppeteer")) toAdd.push("puppeteer");
+      if (subDeps.codeceptjs && !structure.testFrameworks.includes("codeceptjs")) toAdd.push("codeceptjs");
+      if (subDeps.jest && !structure.testFrameworks.includes("jest")) toAdd.push("jest");
+      toAdd.forEach((fw) => { structure.testFrameworks.push(fw); structure.hasTests = true; });
+    } catch {}
+  }
+
+  // Monorepo: detectar Robot/pytest em requirements.txt de subdirs
+  for (const dir of structure.testDirs) {
+    const reqPath = path.join(PROJECT_ROOT, dir, "requirements.txt");
+    if (!fs.existsSync(reqPath)) continue;
+    try {
+      const req = fs.readFileSync(reqPath, "utf8");
+      if (/robotframework/i.test(req) && !structure.testFrameworks.includes("robot")) {
+        structure.testFrameworks.push("robot");
+        structure.hasTests = true;
+      }
+      if (/pytest|selenium/i.test(req) && !structure.testFrameworks.includes("pytest")) {
+        structure.testFrameworks.push("pytest");
+        structure.hasTests = true;
+      }
+    } catch {}
+  }
+
+  // Detectar backend
+  const commonBackendDirs = ["backend", "server", "api", "src"];
+  for (const dir of commonBackendDirs) {
+    const fullPath = path.join(PROJECT_ROOT, dir);
+    if (fs.existsSync(fullPath) && !structure.backendDir) {
+      const hasServerFile = fs.existsSync(path.join(fullPath, "server.js")) ||
+        fs.existsSync(path.join(fullPath, "index.js")) ||
+        fs.existsSync(path.join(fullPath, "app.js"));
+      if (hasServerFile) {
+        structure.backendDir = dir;
+      }
+    }
+  }
+
+  // Detectar frontend
+  const commonFrontendDirs = ["frontend", "client", "web", "app", "src"];
+  for (const dir of commonFrontendDirs) {
+    const fullPath = path.join(PROJECT_ROOT, dir);
+    if (fs.existsSync(fullPath) && !structure.frontendDir) {
+      const hasAppFile = fs.existsSync(path.join(fullPath, "App.js")) ||
+        fs.existsSync(path.join(fullPath, "App.tsx")) ||
+        fs.existsSync(path.join(fullPath, "index.html"));
+      if (hasAppFile) {
+        structure.frontendDir = dir;
+      }
+    }
+  }
+
+  return structure;
+}
+
+// ============================================================================
+// PADRÕES UNIVERSAIS DE ARQUIVOS DE TESTE (qualquer framework)
+// ============================================================================
+
+const UNIVERSAL_TEST_PATTERNS = [
+  /\.(cy|spec|test)\.(js|ts|jsx|tsx)$/i,
+  /_test\.(js|ts)$/i, // CodeceptJS
+  /\.robot$/i,
+  /\.feature$/i,
+  /^(test_.*|.*_test)\.py$/i,
+  /\.steps?\.(js|ts|py)$/i,
+  /\.e2e\.(js|ts)$/i,
+  /\.it\.(js|ts)$/i,
+];
+
+function isTestFile(name) {
+  return UNIVERSAL_TEST_PATTERNS.some((re) => re.test(name));
+}
+
+function collectTestFiles(structure, options = {}) {
+  const { pattern, framework, maxContentFiles = 0 } = options;
+  const results = [];
+
+  for (const dir of structure.testDirs) {
+    const fullPath = path.join(PROJECT_ROOT, dir);
+    const walk = (p, base = "") => {
+      if (!fs.existsSync(p)) return;
+      const entries = fs.readdirSync(p, { withFileTypes: true });
+      for (const e of entries) {
+        const rel = base ? `${base}/${e.name}` : e.name;
+        if (e.isDirectory()) {
+          if (e.name === "node_modules" || e.name === ".git" || e.name === ".venv") continue;
+          walk(path.join(p, e.name), rel);
+        } else if (e.isFile() && isTestFile(e.name)) {
+          const filePath = `${dir}/${rel}`;
+          if (pattern && !filePath.toLowerCase().includes(pattern.toLowerCase())) continue;
+          const inferredFw = inferFrameworkFromFile(e.name, structure, filePath);
+          if (framework && framework !== "all" && inferredFw !== framework && !matchesFramework(inferredFw, framework)) continue;
+          const entry = { path: filePath, inferredFramework: inferredFw };
+          if (maxContentFiles > 0 && results.length < maxContentFiles) {
+            try {
+              entry.content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), "utf8");
+            } catch {}
+          }
+          results.push(entry);
+        }
+      }
+    };
+    walk(fullPath);
+  }
+  return results;
+}
+
+function inferFrameworkFromFile(name, structure = {}, filePath = "") {
+  const pathLower = (filePath || "").toLowerCase().replace(/\\/g, "/");
+  // Inferir pelo CAMINHO quando há múltiplos frameworks (ex: tests/cypress/, tests/selenium-python/)
+  if (/[\/]cypress[\/\-]/.test(pathLower)) return "cypress";
+  if (/[\/]playwright[\/\-]/.test(pathLower)) return "playwright";
+  if (/[\/]wdio[\/\-]|[\/]webdriver[\/\-]/.test(pathLower)) return "webdriverio";
+  if (/[\/]appium[\/\-]/.test(pathLower)) return "appium";
+  if (/[\/]selenium-python[\/]|[\/]pytest[\/\-]/.test(pathLower)) return "pytest";
+  if (/[\/]robot[\/\-]/.test(pathLower)) return "robot";
+  if (/[\/]codecept[\/\-]/.test(pathLower)) return "codeceptjs";
+  if (/[\/]nightwatch[\/\-]/.test(pathLower)) return "nightwatch";
+  if (/[\/]testcafe[\/\-]/.test(pathLower)) return "testcafe";
+  if (/[\/]puppeteer[\/\-]/.test(pathLower)) return "puppeteer";
+  if (/[\/]behave[\/\-]|[\/]features[\/]/.test(pathLower)) return "behave";
+  // Fallback: inferir pela extensão do arquivo
+  if (/\.cy\.(js|ts|jsx|tsx)/i.test(name)) return "cypress";
+  if (/_test\.(js|ts)$/i.test(name)) return "codeceptjs";
+  if (/\.spec\.(js|ts|jsx|tsx)/i.test(name)) {
+    if (structure?.testFrameworks?.includes("webdriverio")) return "webdriverio";
+    if (structure?.testFrameworks?.includes("appium")) return "appium";
+    return "playwright";
+  }
+  if (/\.test\.(js|ts|jsx|tsx)/i.test(name)) return structure?.testFrameworks?.includes("vitest") ? "vitest" : "jest";
+  if (/\.robot$/i.test(name)) return "robot";
+  if (/\.feature$/i.test(name)) return "behave";
+  if (/\.(py|steps?\.py)$/i.test(name) || /^(test_.*|.*_test)\.py$/i.test(name)) return "pytest";
+  if (/\.e2e\.(js|ts)/i.test(name)) return "playwright";
+  return "unknown";
+}
+
+function matchesFramework(inferred, requested) {
+  const aliases = { spec: ["playwright", "webdriverio", "appium"] };
+  if (inferred === requested) return true;
+  return aliases[inferred]?.includes(requested);
+}
+
+function getFrameworkCwd(structure, preferredDirs) {
+  for (const dir of preferredDirs) {
+    if (structure.testDirs.includes(dir)) {
+      return path.join(PROJECT_ROOT, dir);
+    }
+  }
+  const fallback = structure.testDirs[0];
+  return fallback ? path.join(PROJECT_ROOT, fallback) : PROJECT_ROOT;
+}
+
+// ============================================================================
+// MÉTRICAS DE NEGÓCIO - Helpers (FLOWS_CONFIG_FILE definido acima)
 // ============================================================================
 
 const METRICS_FILE = path.join(PROJECT_ROOT, ".qa-lab-metrics.json");
 
+function parseTestRunResult(runOutput, exitCode) {
+  let passed = 0;
+  let failed = 0;
+  const jestMatch = runOutput.match(/Tests:\s+(\d+)\s+passed(?:,\s*(\d+)\s+failed)?/);
+  if (jestMatch) {
+    passed = parseInt(jestMatch[1], 10);
+    failed = jestMatch[2] ? parseInt(jestMatch[2], 10) : 0;
+  }
+  const cypressPass = runOutput.match(/(\d+)\s+passing/);
+  const cypressFail = runOutput.match(/(\d+)\s+failing/);
+  if (cypressPass) passed = parseInt(cypressPass[1], 10);
+  if (cypressFail) failed = parseInt(cypressFail[1], 10);
+  const pwPass = runOutput.match(/(\d+)\s+passed/);
+  const pwFail = runOutput.match(/(\d+)\s+failed/);
+  if (pwPass) passed = parseInt(pwPass[1], 10);
+  if (pwFail) failed = parseInt(pwFail[1], 10);
+  if (passed === 0 && failed === 0) {
+    if (exitCode === 0) passed = 1;
+    else failed = 1;
+  }
+  return { passed, failed };
+}
+
 function appendMetricsEvent(event) {
-  recordMetricEvent(event);
+  try {
+    let data = { events: [], lastUpdated: new Date().toISOString() };
+    if (fs.existsSync(METRICS_FILE)) {
+      const raw = fs.readFileSync(METRICS_FILE, "utf8");
+      try {
+        data = JSON.parse(raw);
+      } catch {}
+    }
+    data.events = data.events || [];
+    data.events.push({ ...event, timestamp: event.timestamp || new Date().toISOString() });
+    data.lastUpdated = new Date().toISOString();
+    if (data.events.length > 500) data.events = data.events.slice(-400);
+    fs.writeFileSync(METRICS_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch {}
+}
+
+function extractFailuresFromOutput(runOutput) {
+  const failures = [];
+  const lines = runOutput.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/fail|error|assertion|timeout|element not found|selector/i.test(line)) {
+      failures.push({
+        test: lines[Math.max(0, i - 1)]?.trim() || "unknown",
+        message: line.trim().slice(0, 500),
+      });
+    }
+  }
+  return failures.slice(0, 20);
 }
 
 // ============================================================================
@@ -900,6 +1486,81 @@ async function callLlmForExplanation(provider, apiKey, baseUrl, model, systemPro
 }
 
 /** Gera explicação de falha (o que aconteceu, por que, o que fazer, sugestão). Usado por por_que_falhou e run_tests_and_explain. */
+async function generateFailureExplanation(resolvedOutput, testFilePath = null) {
+  const structure = detectProjectStructure();
+  const fw = structure.testFrameworks[0] || "unknown";
+
+  let testCode = "";
+  if (testFilePath) {
+    const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
+    const fullPath = path.join(PROJECT_ROOT, normalized);
+    if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+      try {
+        testCode = fs.readFileSync(fullPath, "utf8");
+      } catch {}
+    }
+  }
+
+  const llm = resolveLLMProvider("complex");
+  if (!llm.apiKey) {
+    return { ok: false, error: "No API key", formattedText: null };
+  }
+  const { provider, apiKey, baseUrl, model } = llm;
+
+  const fwHints = {
+    webdriverio: "WebdriverIO (describe/it, $, browser.$)",
+    appium: "Appium/WebdriverIO (mobile, $, browser.$)",
+    playwright: "Playwright (test, page, locator)",
+    cypress: "Cypress (cy.get, cy.click)",
+    jest: "Jest (describe, test, expect)",
+    vitest: "Vitest (describe, test, expect)",
+    robot: "Robot Framework",
+    pytest: "pytest",
+  };
+
+  const systemPrompt = `Você é um mentor de QA. Analise o output de falha e responda em JSON (apenas o JSON, sem markdown) com as chaves:
+- oQueAconteceu: string (explicação em português do que aconteceu, simples)
+- porQueProvavelmenteFalhou: array de strings (lista de possíveis causas, uma por item)
+- oQueFazerAgora: array de strings (passos numerados do que fazer)
+- sugestaoCorrecao: string ou null (código de correção se aplicável, no formato do framework)
+- conceito: string ou null (ex: "Flaky test = teste intermitente. Geralmente por timing ou seletores frágeis.")
+- framework: string (framework do projeto)
+
+Framework do projeto: ${fw}. ${fwHints[fw] || ""}
+Responda APENAS com o JSON válido, sem texto antes ou depois.`;
+
+  const userPrompt = `Output do terminal/log (teste falhou):
+---
+${resolvedOutput.slice(0, 12000)}
+---
+${testCode ? `\nCódigo do teste que falhou:\n---\n${testCode.slice(0, 6000)}\n---` : ""}`;
+
+  try {
+    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    let data = {};
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = {
+        oQueAconteceu: raw.slice(0, 500) || "Não foi possível parsear a resposta.",
+        porQueProvavelmenteFalhou: [],
+        oQueFazerAgora: [],
+        sugestaoCorrecao: null,
+        conceito: null,
+        framework: fw,
+      };
+    }
+    data.framework = data.framework || fw;
+    if (testFilePath && data.sugestaoCorrecao) {
+      saveProjectMemory({ patterns: { [testFilePath]: { lastFix: data.sugestaoCorrecao?.slice(0, 500) } } });
+    }
+    const formattedText = formatFailureExplanation(data);
+    return { ok: true, formattedText, structuredContent: data };
+  } catch (err) {
+    return { ok: false, error: err.message, formattedText: null };
+  }
+}
 
 server.registerTool(
   "por_que_falhou",
@@ -2777,8 +3438,350 @@ test.describe('${type.toUpperCase()} Test', () => {
 );
 
 async function main() {
-  const handled = await handleCLI();
-  if (handled) {
+  const cmd = process.argv[2];
+
+  if (cmd === "--help" || cmd === "-h") {
+    console.log(`
+mcp-lab-agent - Executor + Consultor Inteligente de QA
+
+USO:
+  mcp-lab-agent [comando]   # Sem comando: inicia servidor MCP
+  mcp-lab-agent --help     # Mostra esta ajuda
+
+COMANDOS CLI:
+  analyze                               [NOVO] Análise completa: executa, analisa estabilidade, prevê riscos e recomenda ações
+  auto <descrição> [--max-retries N]    Modo autônomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
+  stats                                 Mostra estatísticas de aprendizado (taxa de sucesso, correções, etc.)
+  detect [--json]                       Detecta frameworks e estrutura
+  route <tarefa>                        Sugere qual ferramenta usar
+  list                                  Lista ferramentas MCP disponíveis
+
+EXEMPLOS:
+  mcp-lab-agent analyze                         # Análise completa + recomendações
+  mcp-lab-agent auto "login flow" --max-retries 5
+  mcp-lab-agent stats
+  mcp-lab-agent detect --json
+
+INTEGRAÇÃO MCP (Cursor/Cline/Windsurf):
+  Adicione ao ~/.cursor/mcp.json:
+  {
+    "mcpServers": {
+      "qa-lab-agent": {
+        "command": "npx",
+        "args": ["-y", "mcp-lab-agent"],
+        "cwd": "\${workspaceFolder}"
+      }
+    }
+  }
+
+AMBIENTES CORPORATIVOS (APIs bloqueadas):
+  Use Ollama (100% offline):
+    brew install ollama
+    ollama pull llama3.1:8b
+    ollama serve
+    mcp-lab-agent analyze  # Funciona sem internet!
+`);
+    process.exit(0);
+  }
+
+  if (cmd === "detect") {
+    const structure = detectProjectStructure();
+    const jsonOnly = process.argv.includes("--json");
+    if (jsonOnly) {
+      console.log(JSON.stringify(structure, null, 2));
+    } else {
+      const lines = [
+        "",
+        "mcp-lab-agent · detecção",
+        "─".repeat(40),
+        `Frameworks: ${structure.testFrameworks.length ? structure.testFrameworks.join(", ") : "nenhum"}`,
+        `Pastas:    ${structure.testDirs.length ? structure.testDirs.join(", ") : "nenhuma"}`,
+        `Backend:   ${structure.backendDir || "—"}`,
+        `Frontend:  ${structure.frontendDir || "—"}`,
+        `Mobile:    ${structure.hasMobile ? "sim" : "—"}`,
+        "─".repeat(40),
+        "(use --json para saída completa)",
+        "",
+      ];
+      console.log(lines.join("\n"));
+    }
+    process.exit(0);
+  }
+
+  if (cmd === "list") {
+    const agents = Object.entries(QA_AGENTS).map(([k, v]) => `  ${k}: ${v.tools.join(", ")}`);
+    console.log("Agentes e ferramentas:\n" + agents.join("\n"));
+    process.exit(0);
+  }
+
+  if (cmd === "route" && process.argv[3]) {
+    const task = process.argv.slice(3).join(" ");
+    const t = task.toLowerCase();
+    let agent = "detection";
+    if (/autônomo|auto|completo|loop|aprende|corrige automaticamente/i.test(t)) agent = "autonomous";
+    else if (/estatística|métrica de aprendizado|taxa de sucesso|learning|stats/i.test(t)) agent = "learning";
+    else if (/rodar|executar|run|test|coverage|watch/i.test(t)) agent = "execution";
+    else if (/gerar|criar|escrever|generate|write|template/i.test(t)) agent = "generation";
+    else if (/analisar|por que|falhou|sugerir|fix|selector/i.test(t)) agent = "analysis";
+    else if (/browser|navegador|screenshot|network|console/i.test(t)) agent = "browser";
+    else if (/relatório|métrica|bug report/i.test(t)) agent = "reporting";
+    else if (/linter|dependência|instalar|analisar método/i.test(t)) agent = "maintenance";
+    const a = QA_AGENTS[agent] || QA_AGENTS.detection;
+    console.log(JSON.stringify({ suggestedAgent: agent, suggestedTools: a.tools, description: a.desc }, null, 2));
+    process.exit(0);
+  }
+
+  if (cmd === "auto") {
+    const request = process.argv.slice(3).join(" ");
+    if (!request) {
+      console.error("❌ Uso: mcp-lab-agent auto <descrição do teste> [--max-retries N]");
+      process.exit(1);
+    }
+    const maxRetriesIdx = process.argv.indexOf("--max-retries");
+    const maxRetries = maxRetriesIdx !== -1 && process.argv[maxRetriesIdx + 1] ? parseInt(process.argv[maxRetriesIdx + 1], 10) : 3;
+    const cleanRequest = request.replace(/--max-retries\s+\d+/g, "").trim();
+
+    console.log(`\n🤖 Modo autônomo iniciado: "${cleanRequest}"\n`);
+    const structure = detectProjectStructure();
+    const fw = structure.testFrameworks[0];
+    if (!fw) {
+      console.error("❌ Nenhum framework detectado.");
+      process.exit(1);
+    }
+
+    const llm = resolveLLMProvider("simple");
+    if (!llm.apiKey) {
+      console.error("❌ Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env");
+      process.exit(1);
+    }
+
+    const memory = loadProjectMemory();
+    const contextLines = [
+      `Frameworks: ${structure.testFrameworks.join(", ")}`,
+      `Pastas: ${structure.testDirs.join(", ")}`,
+      memory.flows?.length ? `Fluxos: ${memory.flows.map((f) => f.name || f.id).join(", ")}` : "",
+    ].filter(Boolean).join("\n");
+
+    let testFilePath = null;
+    let testContent = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`\n[Tentativa ${attempt}/${maxRetries}] Gerando teste...`);
+
+      const { provider, apiKey, baseUrl, model } = llm;
+      const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
+      const systemPrompt = `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
+${memoryHints ? `\nAprendizados anteriores (use como referência):\n${memoryHints.slice(0, 1000)}` : ""}
+Retorne SOMENTE o código, sem markdown.`;
+
+      const userPrompt = `Contexto:\n${contextLines}\n\nGere teste para: ${cleanRequest}\nFramework: ${fw}`;
+
+      try {
+        let specContent = "";
+        if (provider === "gemini") {
+          const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+            }),
+          });
+          const data = await res.json();
+          specContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        } else {
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+              temperature: 0.3,
+              max_tokens: 4096,
+            }),
+          });
+          const data = await res.json();
+          specContent = data.choices?.[0]?.message?.content || "";
+        }
+        specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+        testContent = specContent;
+
+        if (!testFilePath) {
+          const fileName = cleanRequest.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
+          const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
+          const safeName = fileName + ext;
+          testFilePath = path.join(baseDir, safeName);
+          if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
+        }
+        fs.writeFileSync(testFilePath, testContent, "utf8");
+        console.log(`✅ Teste gravado: ${testFilePath}`);
+
+        console.log(`\n[Tentativa ${attempt}/${maxRetries}] Executando teste...`);
+        const runResult = await new Promise((resolve) => {
+          const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
+            cwd: PROJECT_ROOT,
+            stdio: ["inherit", "pipe", "pipe"],
+            shell: process.platform === "win32",
+          });
+          let stdout = "", stderr = "";
+          if (child.stdout) child.stdout.on("data", (d) => { stdout += d.toString(); });
+          if (child.stderr) child.stderr.on("data", (d) => { stderr += d.toString(); });
+          child.on("close", (code) => resolve({ code, output: [stdout, stderr].filter(Boolean).join("\n") }));
+        });
+
+        if (runResult.code === 0) {
+          console.log(`\n✅ Teste passou na tentativa ${attempt}!`);
+          saveProjectMemory({
+            learnings: [{ type: "test_generated", request: cleanRequest, framework: fw, success: true, passedFirstTime: attempt === 1, attempts: attempt, timestamp: new Date().toISOString() }],
+          });
+          console.log(`\n📊 Aprendizado salvo. Use "mcp-lab-agent stats" para ver métricas.\n`);
+          process.exit(0);
+        }
+
+        console.log(`\n❌ Teste falhou (exit ${runResult.code})`);
+        console.log(`\nSaída:\n${runResult.output.slice(0, 800)}\n`);
+
+        if (attempt >= maxRetries) {
+          console.log(`\n❌ Limite de tentativas atingido (${maxRetries}).\n`);
+          saveProjectMemory({
+            learnings: [{ type: "test_generated", request: cleanRequest, framework: fw, success: false, attempts: attempt, timestamp: new Date().toISOString() }],
+          });
+          process.exit(1);
+        }
+
+        console.log(`\n[Tentativa ${attempt}/${maxRetries}] Analisando falha...`);
+        const flakyAnalysis = detectFlakyPatterns(runResult.output);
+        if (flakyAnalysis.isLikelyFlaky) {
+          console.log(`⚠️ Flaky detectado (${flakyAnalysis.confidence.toFixed(2)}): ${flakyAnalysis.patterns.map((p) => p.pattern).join(", ")}`);
+        }
+
+        const explainResult = await generateFailureExplanation(runResult.output, testFilePath);
+        if (!explainResult.ok || !explainResult.structuredContent?.sugestaoCorrecao) {
+          console.log(`⚠️ Não foi possível gerar correção. Tentando novamente...`);
+          continue;
+        }
+
+        console.log(`\n[Tentativa ${attempt}/${maxRetries}] Aplicando correção...`);
+        const fixedCode = explainResult.structuredContent.sugestaoCorrecao;
+        testContent = fixedCode;
+        fs.writeFileSync(testFilePath, testContent, "utf8");
+        console.log(`✅ Correção aplicada.`);
+
+        if (flakyAnalysis.isLikelyFlaky) {
+          saveProjectMemory({
+            learnings: [{
+              type: flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix",
+              request: cleanRequest,
+              framework: fw,
+              fix: fixedCode.slice(0, 500),
+              success: false,
+              timestamp: new Date().toISOString(),
+            }],
+          });
+        }
+      } catch (err) {
+        console.error(`\n❌ Erro na tentativa ${attempt}: ${err.message}\n`);
+        process.exit(1);
+      }
+    }
+
+    console.log(`\n❌ Falhou após ${maxRetries} tentativa(s).\n`);
+    process.exit(1);
+  }
+
+  if (cmd === "stats") {
+    const stats = getMemoryStats();
+    console.log(`
+📊 Estatísticas de Aprendizado
+
+Total de aprendizados: ${stats.totalLearnings}
+Correções bem-sucedidas: ${stats.successfulFixes}
+Correções de seletores: ${stats.selectorFixes}
+Correções de timing: ${stats.timingFixes}
+Testes gerados: ${stats.testsGenerated}
+Taxa de sucesso na 1ª tentativa: ${stats.firstAttemptSuccessRate}%
+
+${stats.totalLearnings === 0 ? "⚠️ Ainda não há aprendizados. Use 'mcp-lab-agent auto <descrição>' para gerar testes e aprender com erros." : ""}
+`);
+    process.exit(0);
+  }
+
+  if (cmd === "analyze") {
+    console.log("\n🤖 Análise completa iniciada...\n");
+    
+    const structure = detectProjectStructure();
+    console.log("[1/4] 🔍 Detectando estrutura...");
+    console.log(`✅ ${structure.testFrameworks.join(", ")} detectado(s)\n`);
+
+    const testFiles = structure.testDirs.flatMap((dir) => {
+      const fullPath = path.join(PROJECT_ROOT, dir);
+      if (!fs.existsSync(fullPath)) return [];
+      return fs.readdirSync(fullPath, { recursive: true })
+        .filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+    });
+    console.log(`✅ ${testFiles.length} teste(s) encontrado(s)\n`);
+
+    console.log("[2/4] 🧠 Analisando estabilidade...");
+    const stabilityAnalysis = analyzeTestStability();
+    const unstableTests = stabilityAnalysis.tests.filter((t) => t.failureRate > 20);
+    
+    if (unstableTests.length > 0) {
+      console.log(`⚠️ ${unstableTests.length} teste(s) instável(is):`);
+      unstableTests.slice(0, 3).forEach((t) => {
+        console.log(`   - ${t.file}: ${t.failureRate}% de falha (${t.failed}/${t.total} execuções)`);
+      });
+    } else {
+      console.log("✅ Todos os testes são estáveis");
+    }
+    console.log();
+
+    console.log("[3/4] 🔮 Analisando riscos por área...");
+    const codeRisks = analyzeCodeRisks();
+    const highRisks = codeRisks.filter((r) => r.risk === "high");
+    
+    if (highRisks.length > 0) {
+      console.log(`🔴 ${highRisks.length} área(s) de RISCO ALTO:`);
+      highRisks.slice(0, 3).forEach((r) => {
+        console.log(`   - ${r.area}/: ${r.files} arquivo(s) sem testes`);
+      });
+    } else {
+      console.log("✅ Todas as áreas principais têm cobertura");
+    }
+    console.log();
+
+    console.log("[4/4] 💡 Gerando recomendações...\n");
+
+    const actions = [];
+    unstableTests.forEach((t) => {
+      actions.push({ priority: "🔴 URGENTE", action: `Refatore ${t.file} (falha ${t.failureRate}%)`, command: `mcp-lab-agent auto "corrigir ${t.file}"` });
+    });
+    highRisks.forEach((r) => {
+      actions.push({ priority: "🔴 URGENTE", action: `Adicione testes para ${r.area}/`, command: `mcp-lab-agent auto "testes para ${r.area}"` });
+    });
+
+    let score = 100;
+    score -= unstableTests.length * 10;
+    score -= highRisks.length * 15;
+    score = Math.max(0, score);
+
+    const emoji = score >= 80 ? "🚀" : score >= 60 ? "✅" : "⚠️";
+
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    console.log(`${emoji} RELATÓRIO COMPLETO\n`);
+    console.log(`Nota: ${score}/100\n`);
+    console.log("AÇÕES RECOMENDADAS:\n");
+    
+    actions.slice(0, 5).forEach((a, i) => {
+      console.log(`${i + 1}. ${a.priority}: ${a.action}`);
+      console.log(`   → ${a.command}\n`);
+    });
+
+    if (actions.length === 0) {
+      console.log("✅ Projeto em excelente estado!\n");
+    }
+
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
     process.exit(0);
   }
 

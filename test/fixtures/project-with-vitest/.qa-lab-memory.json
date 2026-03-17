@@ -1,0 +1,16 @@
+{
+  "patterns": {},
+  "conventions": {},
+  "lastRun": null,
+  "selectors": [],
+  "executions": [
+    {
+      "testFile": "all",
+      "passed": false,
+      "duration": 1,
+      "timestamp": "2026-03-17T21:20:09.710Z",
+      "framework": "vitest"
+    }
+  ],
+  "updatedAt": "2026-03-17T21:20:09.710Z"
+}
