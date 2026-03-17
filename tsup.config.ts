@@ -1,4 +1,4 @@
-export default {
+export default { 
   entry: { index: "src/index.js" },
   format: ["esm"],
   target: "node18",
