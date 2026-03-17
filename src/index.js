@@ -21,6 +21,100 @@ const server = new McpServer({
 });
 
 // ============================================================================
+// MODEL ROUTING - Rotear tarefas simples vs complexas (economia de custo)
+// ============================================================================
+
+const TASK_COMPLEXITY = {
+  simple: ["generate_tests", "create_test_template", "suggest_fix"],
+  complex: ["por_que_falhou", "suggest_selector_fix", "analyze_file_methods"],
+};
+
+function resolveLLMProvider(taskType = "simple") {
+  const GROQ_KEY = process.env.GROQ_API_KEY;
+  const GEMINI_KEY = process.env.GEMINI_API_KEY;
+  const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
+
+  const simpleModel = process.env.QA_LAB_LLM_SIMPLE; // ex: gemini-1.5-flash, gpt-4o-mini
+  const complexModel = process.env.QA_LAB_LLM_COMPLEX; // ex: llama-3.3-70b, gpt-4o
+
+  let provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
+  const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
+  const baseUrl = provider === "groq"
+    ? "https://api.groq.com/openai/v1"
+    : provider === "gemini"
+      ? "https://generativelanguage.googleapis.com/v1beta"
+      : "https://api.openai.com/v1";
+
+  let model;
+  if (taskType === "complex") {
+    model = complexModel || (provider === "groq" ? "llama-3.3-70b-versatile" : provider === "gemini" ? "gemini-1.5-pro" : "gpt-4o");
+  } else {
+    model = simpleModel || (provider === "groq" ? "llama-3.1-8b-instant" : provider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini");
+  }
+
+  return { provider, apiKey, baseUrl, model };
+}
+
+// ============================================================================
+// PROJECT MEMORY - Cache de padrões para geração e análise
+// ============================================================================
+
+const MEMORY_FILE = path.join(PROJECT_ROOT, ".qa-lab-memory.json");
+const FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
+
+function loadProjectMemory() {
+  const memory = { patterns: {}, conventions: {}, lastRun: null, selectors: [] };
+  if (fs.existsSync(MEMORY_FILE)) {
+    try {
+      const raw = fs.readFileSync(MEMORY_FILE, "utf8");
+      Object.assign(memory, JSON.parse(raw));
+    } catch {}
+  }
+  if (fs.existsSync(FLOWS_CONFIG_FILE)) {
+    try {
+      const flows = JSON.parse(fs.readFileSync(FLOWS_CONFIG_FILE, "utf8"));
+      memory.flows = flows.flows || [];
+    } catch {}
+  }
+  return memory;
+}
+
+function saveProjectMemory(updates) {
+  try {
+    let data = loadProjectMemory();
+    if (updates.patterns) data.patterns = { ...data.patterns, ...updates.patterns };
+    if (updates.conventions) data.conventions = { ...data.conventions, ...updates.conventions };
+    if (updates.selectors) data.selectors = [...new Set([...(data.selectors || []), ...updates.selectors])].slice(-100);
+    if (updates.lastRun) data.lastRun = updates.lastRun;
+    data.updatedAt = new Date().toISOString();
+    fs.writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch {}
+}
+
+// ============================================================================
+// FLAKY DETECTION - Padrões típicos de teste intermitente
+// ============================================================================
+
+const FLAKY_PATTERNS = [
+  { name: "timing", regex: /timeout|timed out|exceeded|wait|delay|slow|race condition/i, suggestion: "Adicione wait explícito (ex: page.waitForSelector) ou aumente o timeout." },
+  { name: "ordering", regex: /order|sequenc|flaky|intermittent|sometimes|random/i, suggestion: "Issole o teste ou use beforeAll/afterAll para estado limpo. Evite dependência de ordem entre testes." },
+  { name: "selector", regex: /element not found|selector|locator|cy\.get|page\.locator|Unable to find/i, suggestion: "Use seletores estáveis: data-testid, role, texto acessível. Evite classes CSS dinâmicas." },
+  { name: "network", regex: /ECONNREFUSED|network|fetch|axios|request failed|404|500/i, suggestion: "Mocke APIs ou garanta que o backend esteja rodando. Use retry ou intercept." },
+  { name: "shared_state", regex: /state|cleanup|beforeEach|afterEach|isolation/i, suggestion: "Garanta beforeEach/afterEach para resetar estado. Evite variáveis globais compartilhadas." },
+];
+
+function detectFlakyPatterns(runOutput) {
+  const detected = [];
+  for (const p of FLAKY_PATTERNS) {
+    if (p.regex.test(runOutput)) {
+      detected.push({ pattern: p.name, suggestion: p.suggestion });
+    }
+  }
+  const confidence = detected.length > 0 ? Math.min(0.5 + detected.length * 0.2, 0.95) : 0;
+  return { isLikelyFlaky: confidence > 0.5, confidence, patterns: detected };
+}
+
+// ============================================================================
 // DETECÇÃO AUTOMÁTICA DE ESTRUTURA
 // ============================================================================
 
@@ -358,11 +452,10 @@ function getFrameworkCwd(structure, preferredDirs) {
 }
 
 // ============================================================================
-// MÉTRICAS DE NEGÓCIO - Helpers
+// MÉTRICAS DE NEGÓCIO - Helpers (FLOWS_CONFIG_FILE definido acima)
 // ============================================================================
 
 const METRICS_FILE = path.join(PROJECT_ROOT, ".qa-lab-metrics.json");
-const FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
 
 function parseTestRunResult(runOutput, exitCode) {
   let passed = 0;
@@ -509,6 +602,154 @@ server.registerTool(
       content: [{ type: "text", text: summary }],
       structuredContent: { ok: true, structure },
     };
+  }
+);
+
+// ============================================================================
+// WEB EVAL BROWSER - Modo browser (screenshots, network, console) via Playwright
+// ============================================================================
+
+server.registerTool(
+  "web_eval_browser",
+  {
+    title: "Avaliar app no browser (screenshots, network, console)",
+    description: "[Agente especializado: Browser] Abre a URL no navegador, captura screenshot, erros de console e requisições de rede. Inspirado em web-eval-agent. Requer: npm install playwright",
+    inputSchema: z.object({
+      url: z.string().describe("URL para avaliar (ex: http://localhost:3000, https://exemplo.com)."),
+      screenshotPath: z.string().optional().describe("Caminho para salvar screenshot. Default: .qa-lab-screenshot.png"),
+      captureNetwork: z.boolean().optional().describe("Capturar requisições de rede. Default: true"),
+      captureConsole: z.boolean().optional().describe("Capturar logs e erros do console. Default: true"),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      screenshotPath: z.string().optional(),
+      consoleLogs: z.array(z.string()).optional(),
+      consoleErrors: z.array(z.string()).optional(),
+      networkRequests: z.array(z.object({ url: z.string(), method: z.string(), status: z.number().optional() })).optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async ({ url, screenshotPath, captureNetwork = true, captureConsole = true }) => {
+    let playwright;
+    try {
+      playwright = await import("playwright");
+    } catch (e) {
+      return {
+        content: [{
+          type: "text",
+          text: "Playwright não instalado. Rode: npm install playwright (ou npx playwright install para browsers).",
+        }],
+        structuredContent: { ok: false, error: "Playwright not installed. Run: npm install playwright" },
+      };
+    }
+
+    const outPath = screenshotPath ? path.join(PROJECT_ROOT, screenshotPath.replace(/^\//, "")) : path.join(PROJECT_ROOT, ".qa-lab-screenshot.png");
+    const consoleLogs = [];
+    const consoleErrors = [];
+    const networkRequests = [];
+
+    try {
+      const browser = await playwright.chromium.launch({ headless: true });
+      const context = await browser.newContext();
+      const page = await context.newPage();
+
+      if (captureConsole) {
+        page.on("console", (msg) => {
+          const text = msg.text();
+          if (msg.type() === "error") consoleErrors.push(text);
+          else consoleLogs.push(`[${msg.type()}] ${text}`);
+        });
+      }
+
+      if (captureNetwork) {
+        page.on("request", (req) => {
+          networkRequests.push({ url: req.url(), method: req.method(), status: undefined });
+        });
+        page.on("response", (res) => {
+          const req = networkRequests.find((r) => r.url === res.request().url());
+          if (req) req.status = res.status();
+        });
+      }
+
+      await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+      await page.screenshot({ path: outPath, fullPage: false });
+
+      await browser.close();
+
+      const relPath = path.relative(PROJECT_ROOT, outPath);
+      let summary = `Screenshot salvo: ${relPath}`;
+      if (consoleErrors.length) summary += `\n\n⚠️ ${consoleErrors.length} erro(s) no console:\n${consoleErrors.slice(0, 5).join("\n")}`;
+      if (networkRequests.length) summary += `\n\nRequisições: ${networkRequests.length}`;
+
+      return {
+        content: [{ type: "text", text: summary }],
+        structuredContent: {
+          ok: true,
+          screenshotPath: relPath,
+          consoleLogs: captureConsole ? consoleLogs.slice(0, 50) : undefined,
+          consoleErrors: captureConsole && consoleErrors.length ? consoleErrors : undefined,
+          networkRequests: captureNetwork ? networkRequests.slice(0, 30) : undefined,
+        },
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `Erro: ${err.message}` }],
+        structuredContent: { ok: false, error: err.message },
+      };
+    }
+  }
+);
+
+// ============================================================================
+// QA ROUTE TASK - Agentes especializados (roteamento de tarefas)
+// ============================================================================
+
+const QA_AGENTS = {
+  detection: { tools: ["detect_project", "read_project", "list_test_files"], desc: "Detecção de estrutura, frameworks e arquivos" },
+  execution: { tools: ["run_tests", "watch_tests", "get_test_coverage"], desc: "Execução de testes e cobertura" },
+  generation: { tools: ["generate_tests", "write_test", "create_test_template"], desc: "Geração de testes com LLM" },
+  analysis: { tools: ["analyze_failures", "por_que_falhou", "suggest_fix", "suggest_selector_fix"], desc: "Análise de falhas e sugestões" },
+  browser: { tools: ["web_eval_browser"], desc: "Avaliação em browser real (screenshots, network, console)" },
+  reporting: { tools: ["create_bug_report", "get_business_metrics"], desc: "Relatórios e métricas" },
+  maintenance: { tools: ["run_linter", "install_dependencies", "analyze_file_methods"], desc: "Manutenção e análise de código" },
+};
+
+server.registerTool(
+  "qa_route_task",
+  {
+    title: "Roteador de tarefas QA (agentes especializados)",
+    description: "Recebe uma descrição da tarefa e retorna qual agente (conjunto de ferramentas) deve ser usado. Útil para encaminhar a ferramenta certa.",
+    inputSchema: z.object({
+      task: z.string().describe("Descrição da tarefa (ex: 'rodar os testes', 'gerar teste de login', 'analisar por que falhou')."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      suggestedAgent: z.string(),
+      suggestedTools: z.array(z.string()),
+      description: z.string(),
+    }),
+  },
+  async ({ task }) => {
+    const t = task.toLowerCase();
+    if (/rodar|executar|run|test|coverage|watch/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: execution → run_tests, get_test_coverage" }], structuredContent: { ok: true, suggestedAgent: "execution", suggestedTools: QA_AGENTS.execution.tools, description: QA_AGENTS.execution.desc } };
+    }
+    if (/gerar|criar|escrever|generate|write|template/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: generation → generate_tests, write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS.generation.tools, description: QA_AGENTS.generation.desc } };
+    }
+    if (/analisar|por que|falhou|suggest|correção|selector|fix/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: analysis → analyze_failures, por_que_falhou, suggest_fix" }], structuredContent: { ok: true, suggestedAgent: "analysis", suggestedTools: QA_AGENTS.analysis.tools, description: QA_AGENTS.analysis.desc } };
+    }
+    if (/browser|screenshot|navegador|avaliar|ux|network|console/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: browser → web_eval_browser" }], structuredContent: { ok: true, suggestedAgent: "browser", suggestedTools: QA_AGENTS.browser.tools, description: QA_AGENTS.browser.desc } };
+    }
+    if (/detectar|estrutura|listar|arquivos|framework/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: detection → detect_project, list_test_files" }], structuredContent: { ok: true, suggestedAgent: "detection", suggestedTools: QA_AGENTS.detection.tools, description: QA_AGENTS.detection.desc } };
+    }
+    if (/relatório|bug|métricas|metrics|coverage/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: reporting → create_bug_report, get_business_metrics" }], structuredContent: { ok: true, suggestedAgent: "reporting", suggestedTools: QA_AGENTS.reporting.tools, description: QA_AGENTS.reporting.desc } };
+    }
+    return { content: [{ type: "text", text: "Agente: detection (genérico)" }], structuredContent: { ok: true, suggestedAgent: "detection", suggestedTools: QA_AGENTS.detection.tools, description: QA_AGENTS.detection.desc } };
   }
 );
 
@@ -689,6 +930,7 @@ server.registerTool(
           exitCode: code ?? 1,
           failures: !passed ? extractFailuresFromOutput(runOutput) : undefined,
         });
+        if (passed) saveProjectMemory({ lastRun: { spec: spec || null, framework: selectedFramework, passed: p } });
         resolve({
           content: [{ type: "text", text: passed ? "Testes executados com sucesso." : "Falha na execução dos testes." }],
           structuredContent: {
@@ -797,29 +1039,19 @@ server.registerTool(
       }
     }
 
-    const GROQ_KEY = process.env.GROQ_API_KEY;
-    const GEMINI_KEY = process.env.GEMINI_API_KEY;
-    const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
-
-    if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+    const llm = resolveLLMProvider("simple");
+    if (!llm.apiKey) {
       return {
         content: [{ type: "text", text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env" }],
         structuredContent: { ok: false, error: "No API key configured" },
       };
     }
 
-    const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
-    const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
-    const baseUrl = provider === "groq" 
-      ? "https://api.groq.com/openai/v1"
-      : provider === "gemini"
-      ? "https://generativelanguage.googleapis.com/v1beta"
-      : "https://api.openai.com/v1";
-    const model = provider === "groq"
-      ? "llama-3.3-70b-versatile"
-      : provider === "gemini"
-      ? "gemini-1.5-flash"
-      : "gpt-4o-mini";
+    const memory = loadProjectMemory();
+    const memoryBlock = memory.flows?.length
+      ? `\n\nFluxos do projeto (use como referência): ${memory.flows.map((f) => f.name || f.id).join(", ")}`
+      : "";
+    const contextWithMemory = context + memoryBlock;
 
     const hasReference = Boolean(referenceBlock?.trim());
     const systemPrompt = hasReference
@@ -1026,13 +1258,29 @@ server.registerTool(
       }
     }
 
-    const summary = failures.length
+    const flakyAnalysis = detectFlakyPatterns(runOutput);
+    let summary = failures.length
       ? `${failures.length} falha(s) detectada(s).`
       : "Nenhuma falha detectada.";
+    if (flakyAnalysis.isLikelyFlaky) {
+      summary += `\n\n⚠️ Possível teste flaky (${Math.round(flakyAnalysis.confidence * 100)}% confiança). Padrões: ${flakyAnalysis.patterns.map((p) => p.pattern).join(", ")}.`;
+      summary += "\n\nSugestões:";
+      flakyAnalysis.patterns.forEach((p) => {
+        summary += `\n• ${p.pattern}: ${p.suggestion}`;
+      });
+      if (flakyAnalysis.patterns.some((p) => p.pattern === "timing" || p.pattern === "network")) {
+        summary += "\n• Considere adicionar test.retry(2) ou equivalente para retries automáticos.";
+      }
+    }
 
     return {
       content: [{ type: "text", text: summary }],
-      structuredContent: { ok: true, summary, failures: failures.length ? failures : undefined },
+      structuredContent: {
+        ok: true,
+        summary,
+        failures: failures.length ? failures : undefined,
+        flaky: flakyAnalysis.isLikelyFlaky ? { confidence: flakyAnalysis.confidence, patterns: flakyAnalysis.patterns } : undefined,
+      },
     };
   }
 );
@@ -1118,25 +1366,11 @@ async function generateFailureExplanation(resolvedOutput, testFilePath = null) {
     }
   }
 
-  const GROQ_KEY = process.env.GROQ_API_KEY;
-  const GEMINI_KEY = process.env.GEMINI_API_KEY;
-  const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
-  if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+  const llm = resolveLLMProvider("complex");
+  if (!llm.apiKey) {
     return { ok: false, error: "No API key", formattedText: null };
   }
-
-  const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
-  const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
-  const baseUrl = provider === "groq"
-    ? "https://api.groq.com/openai/v1"
-    : provider === "gemini"
-      ? "https://generativelanguage.googleapis.com/v1beta"
-      : "https://api.openai.com/v1";
-  const model = provider === "groq"
-    ? "llama-3.3-70b-versatile"
-    : provider === "gemini"
-      ? "gemini-1.5-flash"
-      : "gpt-4o-mini";
+  const { provider, apiKey, baseUrl, model } = llm;
 
   const fwHints = {
     webdriverio: "WebdriverIO (describe/it, $, browser.$)",
@@ -1183,6 +1417,9 @@ ${testCode ? `\nCódigo do teste que falhou:\n---\n${testCode.slice(0, 6000)}\n-
       };
     }
     data.framework = data.framework || fw;
+    if (testFilePath && data.sugestaoCorrecao) {
+      saveProjectMemory({ patterns: { [testFilePath]: { lastFix: data.sugestaoCorrecao?.slice(0, 500) } } });
+    }
     const formattedText = formatFailureExplanation(data);
     return { ok: true, formattedText, structuredContent: data };
   } catch (err) {
@@ -1245,11 +1482,8 @@ server.registerTool(
       }
     }
 
-    const GROQ_KEY = process.env.GROQ_API_KEY;
-    const GEMINI_KEY = process.env.GEMINI_API_KEY;
-    const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
-
-    if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+    const llm = resolveLLMProvider("complex");
+    if (!llm.apiKey) {
       return {
         content: [{
           type: "text",
@@ -1258,19 +1492,7 @@ server.registerTool(
         structuredContent: { ok: false, error: "No API key configured" },
       };
     }
-
-    const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
-    const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
-    const baseUrl = provider === "groq"
-      ? "https://api.groq.com/openai/v1"
-      : provider === "gemini"
-        ? "https://generativelanguage.googleapis.com/v1beta"
-        : "https://api.openai.com/v1";
-    const model = provider === "groq"
-      ? "llama-3.3-70b-versatile"
-      : provider === "gemini"
-        ? "gemini-1.5-flash"
-        : "gpt-4o-mini";
+    const { provider, apiKey, baseUrl, model } = llm;
 
     const fwHints = {
       webdriverio: "WebdriverIO (describe/it, $, browser.$)",
@@ -1463,20 +1685,14 @@ server.registerTool(
       } catch {}
     }
 
-    const GROQ_KEY = process.env.GROQ_API_KEY;
-    const GEMINI_KEY = process.env.GEMINI_API_KEY;
-    const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
-    if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+    const llm = resolveLLMProvider("complex");
+    if (!llm.apiKey) {
       return {
         content: [{ type: "text", text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env" }],
         structuredContent: { ok: false, error: "No API key configured" },
       };
     }
-
-    const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
-    const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
-    const baseUrl = provider === "groq" ? "https://api.groq.com/openai/v1" : provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1";
-    const model = provider === "groq" ? "llama-3.3-70b-versatile" : provider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini";
+    const { provider, apiKey, baseUrl, model } = llm;
 
     const fwHints = {
       cypress: "Cypress: cy.get('[data-testid=...]'), cy.contains(), cy.get('button').filter(':visible')",
@@ -1606,11 +1822,8 @@ server.registerTool(
       };
     }
 
-    const GROQ_KEY = process.env.GROQ_API_KEY;
-    const GEMINI_KEY = process.env.GEMINI_API_KEY;
-    const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.QA_LAB_LLM_API_KEY;
-
-    if (!GROQ_KEY && !GEMINI_KEY && !OPENAI_KEY) {
+    const llm = resolveLLMProvider("complex");
+    if (!llm.apiKey) {
       return {
         content: [{
           type: "text",
@@ -1619,19 +1832,7 @@ server.registerTool(
         structuredContent: { ok: false, error: "No API key configured" },
       };
     }
-
-    const provider = GROQ_KEY ? "groq" : GEMINI_KEY ? "gemini" : "openai";
-    const apiKey = GROQ_KEY || GEMINI_KEY || OPENAI_KEY;
-    const baseUrl = provider === "groq"
-      ? "https://api.groq.com/openai/v1"
-      : provider === "gemini"
-        ? "https://generativelanguage.googleapis.com/v1beta"
-        : "https://api.openai.com/v1";
-    const model = provider === "groq"
-      ? "llama-3.3-70b-versatile"
-      : provider === "gemini"
-        ? "gemini-1.5-flash"
-        : "gpt-4o-mini";
+    const { provider, apiKey, baseUrl, model } = llm;
 
     const ext = path.extname(fullPath).toLowerCase();
     const lang = [".ts", ".tsx"].includes(ext) ? "TypeScript" : [".js", ".jsx"].includes(ext) ? "JavaScript" : [".py"].includes(ext) ? "Python" : "código";
@@ -2251,6 +2452,63 @@ test.describe('${type.toUpperCase()} Test', () => {
 );
 
 async function main() {
+  const cmd = process.argv[2];
+
+  if (cmd === "--help" || cmd === "-h") {
+    console.log(`
+mcp-lab-agent - MCP server para QA automation
+
+USO:
+  mcp-lab-agent [comando]   # Sem comando: inicia servidor MCP
+  mcp-lab-agent --help     # Mostra esta ajuda
+
+COMANDOS CLI:
+  detect                   Detecta frameworks e estrutura do projeto (JSON)
+  route <tarefa>           Sugere qual ferramenta usar (ex: route "rodar testes")
+  list                     Lista ferramentas MCP disponíveis
+
+INTEGRAÇÃO MCP (Cursor/Cline/Windsurf):
+  Adicione ao ~/.cursor/mcp.json:
+  {
+    "mcpServers": {
+      "qa-lab-agent": {
+        "command": "npx",
+        "args": ["-y", "mcp-lab-agent"],
+        "cwd": "\${workspaceFolder}"
+      }
+    }
+  }
+`);
+    process.exit(0);
+  }
+
+  if (cmd === "detect") {
+    const structure = detectProjectStructure();
+    console.log(JSON.stringify(structure, null, 2));
+    process.exit(0);
+  }
+
+  if (cmd === "list") {
+    const agents = Object.entries(QA_AGENTS).map(([k, v]) => `  ${k}: ${v.tools.join(", ")}`);
+    console.log("Agentes e ferramentas:\n" + agents.join("\n"));
+    process.exit(0);
+  }
+
+  if (cmd === "route" && process.argv[3]) {
+    const task = process.argv.slice(3).join(" ");
+    const t = task.toLowerCase();
+    let agent = "detection";
+    if (/rodar|executar|run|test|coverage|watch/i.test(t)) agent = "execution";
+    else if (/gerar|criar|escrever|generate|write|template/i.test(t)) agent = "generation";
+    else if (/analisar|por que|falhou|sugerir|fix|selector/i.test(t)) agent = "analysis";
+    else if (/browser|navegador|screenshot|network|console/i.test(t)) agent = "browser";
+    else if (/relatório|métrica|bug report/i.test(t)) agent = "reporting";
+    else if (/linter|dependência|instalar|analisar método/i.test(t)) agent = "maintenance";
+    const a = QA_AGENTS[agent] || QA_AGENTS.detection;
+    console.log(JSON.stringify({ suggestedAgent: agent, suggestedTools: a.tools, description: a.desc }, null, 2));
+    process.exit(0);
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

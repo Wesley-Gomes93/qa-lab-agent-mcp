@@ -47,6 +47,9 @@
     "dotenv": "^16.4.5",
     "zod": "^3.25.0"
   },
+  "optionalDependencies": {
+    "playwright": "^1.49.0"
+  },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",
     "tsup": "^8.3.5",

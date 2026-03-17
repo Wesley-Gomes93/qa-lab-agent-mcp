@@ -4,24 +4,31 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**MCP server** para QA automation em qualquer projeto. Detecta automaticamente frameworks de teste (Cypress, Playwright, Jest, Vitest e mais) e integra com o Cursor IDE via Model Context Protocol.
+**Assistente de QA com IA que roda direto no seu IDE.** Detecta frameworks automaticamente, gera testes, analisa falhas e avalia apps em browser — sem configuração complexa.
 
 ---
 
-## ✨ Features
+## Por que mcp-lab-agent?
 
-| Categoria | Funcionalidades |
-|-----------|-----------------|
-| **Detecção** | Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot Framework, pytest, Behave, Appium, Detox |
-| **Execução** | Run tests, watch mode, coverage (Jest) |
-| **Geração** | Testes via LLM (Groq, Gemini, OpenAI), templates API/UI/Unit |
-| **Análise** | Análise de falhas, suggest_fix, suggest_selector_fix (self-healing) |
-| **Relatórios** | Bug reports em Markdown, métricas de negócio |
-| **Manutenção** | Linter, install dependencies, list_test_files |
+| web-eval-agent | agentic-qe | **mcp-lab-agent** |
+|----------------|------------|-------------------|
+| Browser + network ✅ | 60 agentes, routing | **Tudo isso + zero config** |
+| Python, uv, API key | CLI complexo, muitas deps | **npm install, 2 minutos** |
+| Projeto descontinuado | Foco em Claude Code | **Cursor, Cline, Windsurf, qualquer MCP** |
+| — | — | **Detecção automática de 15+ frameworks** |
+| — | — | **Flaky detection + model routing** |
+| — | — | **Memória de projeto + agentes especializados** |
+
+**Em 2 minutos** você tem detecção, execução, geração com IA, análise de falhas, modo browser e métricas.
 
 ---
 
-## 🚀 Instalação Rápida
+## Quick Start
+
+```bash
+# Teste o CLI antes de configurar (opcional)
+npx mcp-lab-agent detect
+```
 
 **1. Configure o MCP no Cursor** (`~/.cursor/mcp.json`):
 
@@ -37,87 +44,147 @@
 }
 ```
 
-**2. Reinicie o Cursor**
-
-**3. Use no chat:**
+**2. Reinicie o Cursor e use no chat:**
 
 ```
 "Detecte a estrutura do meu projeto"
 "Rode os testes"
 "Gere um teste E2E para login"
+"Por que o teste falhou?"
+"Avalie http://localhost:3000 no browser"
 ```
 
 ---
 
-## 📚 Documentação
+## Architecture
 
-| Guia | Descrição |
-|------|-----------|
-| [Quick Start](QUICKSTART.md) | Instalação em 2 minutos |
-| [Como Usar](COMO_USAR.md) | Exemplos e fluxos completos |
-| [Instalação](INSTALL.md) | Opções detalhadas |
-| [Setup Cursor](CURSOR_SETUP.md) | Configuração passo a passo |
-| [Frameworks](FRAMEWORKS.md) | Frameworks suportados |
-| [Troubleshooting](TROUBLESHOOTING.md) | Solução de problemas |
+O diagrama abaixo mostra como o mcp-lab-agent conecta IDE, ferramentas especializadas e LLMs em um fluxo único:
+
+```mermaid
+flowchart TB
+    subgraph IDE["🖥️ IDE (Cursor, Cline, Windsurf)"]
+        Chat[Chat do usuário]
+    end
+
+    subgraph MCP["MCP Protocol (stdio)"]
+        Transport[Stdio Transport]
+    end
+
+    subgraph Agent["mcp-lab-agent"]
+        Router[qa_route_task]
+        
+        subgraph Agents["Agentes Especializados"]
+            D[detection<br/>detect_project, read_project, list_test_files]
+            E[execution<br/>run_tests, watch_tests, get_test_coverage]
+            G[generation<br/>generate_tests, write_test]
+            A[analysis<br/>analyze_failures, por_que_falhou, suggest_selector_fix]
+            B[browser<br/>web_eval_browser]
+            R[reporting<br/>create_bug_report, get_business_metrics]
+        end
+
+        subgraph Brain["🧠 Núcleo"]
+            MR[Model Router<br/>simples → Groq/Flash | complexo → 70B/Pro]
+            PM[Project Memory<br/>.qa-lab-memory.json]
+            FD[Flaky Detection<br/>timing, selector, network]
+        end
+    end
+
+    subgraph External["Externo"]
+        LLM[LLM: Groq / Gemini / OpenAI]
+        PW[Playwright optional]
+        Proj[Seu projeto]
+    end
+
+    Chat --> Transport
+    Transport --> Router
+    Router --> D & E & G & A & B & R
+
+    D & E & G & A & R --> Proj
+    B --> PW
+    B --> Proj
+
+    G & A --> MR
+    MR --> LLM
+    G & A --> PM
+    A --> FD
+```
+
+**Fluxo resumido:**
+1. **Usuário** fala no chat do IDE
+2. **MCP** entrega a mensagem ao `mcp-lab-agent`
+3. **qa_route_task** sugere o agente certo (detection, execution, generation, etc.)
+4. **Ferramentas** executam no projeto (detectar, rodar, gerar, analisar)
+5. **Model Router** escolhe o modelo: tarefas simples → barato; complexas → mais capaz
+6. **Project Memory** guarda padrões e fluxos para próximas gerações
+7. **Flaky Detection** identifica testes intermitentes e sugere correções
 
 ---
 
-## 🧪 Testes e Qualidade
+## Features
 
-O projeto possui **testes E2E** e **unitários** para garantir estabilidade.
+| Categoria | O que faz |
+|-----------|-----------|
+| **Detecção** | Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot, pytest, Behave, Appium, Detox |
+| **Execução** | run_tests, watch, coverage (Jest/Vitest) |
+| **Geração** | Testes via LLM (Groq, Gemini, OpenAI), templates |
+| **Análise** | analyze_failures, por_que_falhou, suggest_fix, suggest_selector_fix |
+| **Browser** | web_eval_browser — screenshots, network, console (Playwright opcional) |
+| **Relatórios** | Bug reports em Markdown, métricas de negócio |
+| **Flaky-aware** | Detecta timing, selector, network; sugere retries |
+| **Model routing** | Tarefas simples → modelo barato; complexas → modelo forte |
+| **Memória** | Cache em .qa-lab-memory.json, qa-lab-flows.json |
+
+---
+
+## CLI
 
 ```bash
-# Rodar todos os testes
-npm test
-
-# Com cobertura
-npm run test:coverage
-
-# Relatório JSON
-npm run test:report
+mcp-lab-agent [comando]
 ```
 
-| Métrica | Descrição |
+| Comando | Descrição |
 |---------|-----------|
-| **E2E** | Comunicação MCP via stdio, ferramentas principais (detect_project, read_file, run_tests, etc.) |
-| **Unit** | Detecção em projetos vazios e com Vitest |
-| **Relatórios** | `test-results/results.json`, `test-results/QA_REPORT.md`, `coverage/` |
+| *(sem args)* | Inicia o servidor MCP (modo padrão para o IDE) |
+| `detect` | Detecta frameworks e estrutura do projeto (JSON) |
+| `route <tarefa>` | Sugere qual ferramenta usar |
+| `list` | Lista agentes e ferramentas disponíveis |
+| `--help` | Mostra ajuda |
 
-Ver [test-results/QA_REPORT.md](test-results/QA_REPORT.md) para relatório detalhado.
+**Exemplos:**
+```bash
+mcp-lab-agent detect
+mcp-lab-agent route "rodar os testes"
+mcp-lab-agent route "gerar teste de login"
+mcp-lab-agent list
+```
+
+Referência completa do CLI: `mcp-lab-agent --help`
 
 ---
 
-## 🔧 Variáveis de Ambiente (opcional)
+## Configuração
 
-Para `generate_tests`, `por_que_falhou` e `suggest_selector_fix` (LLM):
+### Variáveis de ambiente (opcional)
 
-| Variável | Provedor |
-|----------|----------|
-| `GROQ_API_KEY` | Groq (gratuito) |
+| Variável | Uso |
+|----------|-----|
+| `GROQ_API_KEY` | Groq (gratuito, rápido) |
 | `GEMINI_API_KEY` | Google Gemini |
 | `OPENAI_API_KEY` | OpenAI |
+| `QA_LAB_LLM_SIMPLE` | Modelo para tarefas simples (ex: gemini-1.5-flash) |
+| `QA_LAB_LLM_COMPLEX` | Modelo para tarefas complexas (ex: gpt-4o) |
 
----
+### Modo browser (opcional)
 
-## 📦 Estrutura do Projeto
+Para `web_eval_browser`:
 
-```
-qa-lab-agent-mcp/
-├── src/
-│   └── index.js          # MCP server (tools, detecção, métricas)
-├── dist/                 # Build (tsup)
-├── test/
-│   ├── e2e/              # Testes end-to-end MCP
-│   ├── unit/             # Testes de detecção
-│   ├── fixtures/         # Projetos mock para testes
-│   └── utils/            # Cliente MCP para testes
-├── test-results/         # Relatórios de teste
-└── coverage/             # Cobertura
+```bash
+npm install playwright
 ```
 
 ---
 
-## 🛠 Desenvolvimento
+## Desenvolvimento
 
 ```bash
 git clone https://github.com/Wesley-Gomes93/mcp-lab-agent
@@ -127,8 +194,15 @@ npm run build
 npm test
 ```
 
+| Script | Descrição |
+|--------|-----------|
+| `npm run build` | Build com tsup |
+| `npm test` | Testes (Vitest) |
+| `npm run test:coverage` | Cobertura |
+| `npm run dev` | Build em watch |
+
 ---
 
-## 📄 Licença
+## Licença
 
 MIT © Wesley Gomes

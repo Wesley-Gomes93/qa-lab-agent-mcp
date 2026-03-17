@@ -7,3 +7,6 @@ test/fixtures/**/node_modules
 .qa-lab-last-failure.log
 .qa-lab-metrics.json
 .DS_Store
+
+# Documentação (mantida localmente, não sobe pro repo)
+docs/
