@@ -1,6 +1,6 @@
 {
   "name": "mcp-lab-agent",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "MCP server + AI agents for QA automation in any project (Cypress, Playwright, Jest)",
   "type": "module",
   "main": "dist/index.js",
@@ -8,7 +8,8 @@
     "mcp-lab-agent": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "qa-lab-flows.json.example"
   ],
   "scripts": {
     "build": "tsup",
@@ -24,7 +25,9 @@
     "jest",
     "cursor",
     "ai-agent",
-    "test-automation"
+    "test-automation",
+    "self-healing",
+    "qa-metrics"
   ],
   "repository": {
     "type": "git",

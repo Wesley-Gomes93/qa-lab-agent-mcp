@@ -1,0 +1,35 @@
+---
+description: Quando o usuário mencionar qa-lab-agent, use as ferramentas do MCP
+alwaysApply: true
+---
+
+# QA com mcp-lab-agent
+
+## Quando usar o qa-lab-agent
+
+**Só use as ferramentas do MCP qa-lab-agent quando o usuário mencionar explicitamente:**
+- "com o qa-lab-agent..."
+- "@qa-lab-agent"
+- "usa o mcp-lab-agent"
+- "pelo qa-lab-agent"
+
+**Se o usuário não mencionar qa-lab-agent**, responda normalmente com o Cursor/agente padrão — não force o uso do MCP.
+
+## Ferramentas (quando ativado)
+
+- Listar arquivos de teste → `list_test_files`
+- Executar testes → `run_tests`
+- Detectar estrutura → `detect_project`
+- Gerar testes → `generate_tests` + `write_test`
+- Analisar falhas → `analyze_failures` + `suggest_fix` ou `por_que_falhou`
+- Seletor quebrado → `suggest_selector_fix`
+- Bug report → `create_bug_report`
+- Métricas de QA → `get_business_metrics`
+- Cobertura → `get_test_coverage`
+
+## Resumo
+
+| Usuário diz | O que fazer |
+|-------------|-------------|
+| "Liste os testes **com o qa-lab-agent**" | Usar MCP |
+| "Liste os testes" | Comportamento normal (Cursor/agente padrão) |
