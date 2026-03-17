@@ -2186,7 +2186,7 @@ USO:
   mcp-lab-agent --help     # Mostra esta ajuda
 
 COMANDOS CLI:
-  detect                   Detecta frameworks e estrutura do projeto (JSON)
+  detect [--json]          Detecta frameworks e estrutura. Padr\xE3o: resumo. --json: JSON completo para scripts.
   route <tarefa>           Sugere qual ferramenta usar (ex: route "rodar testes")
   list                     Lista ferramentas MCP dispon\xEDveis
 
@@ -2206,7 +2206,25 @@ INTEGRA\xC7\xC3O MCP (Cursor/Cline/Windsurf):
   }
   if (cmd === "detect") {
     const structure = detectProjectStructure();
-    console.log(JSON.stringify(structure, null, 2));
+    const jsonOnly = process.argv.includes("--json");
+    if (jsonOnly) {
+      console.log(JSON.stringify(structure, null, 2));
+    } else {
+      const lines = [
+        "",
+        "mcp-lab-agent \xB7 detec\xE7\xE3o",
+        "\u2500".repeat(40),
+        `Frameworks: ${structure.testFrameworks.length ? structure.testFrameworks.join(", ") : "nenhum"}`,
+        `Pastas:    ${structure.testDirs.length ? structure.testDirs.join(", ") : "nenhuma"}`,
+        `Backend:   ${structure.backendDir || "\u2014"}`,
+        `Frontend:  ${structure.frontendDir || "\u2014"}`,
+        `Mobile:    ${structure.hasMobile ? "sim" : "\u2014"}`,
+        "\u2500".repeat(40),
+        "(use --json para sa\xEDda completa)",
+        ""
+      ];
+      console.log(lines.join("\n"));
+    }
     process.exit(0);
   }
   if (cmd === "list") {
