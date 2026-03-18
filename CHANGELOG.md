@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2] - 2026-03-18
+
+### Slack Bot
+- Integração Slack: @qa-bot para análise e testes via chat
+- Config simplificada: repo no config ou .env
+- Setup script: `npm run setup` no slack-bot
+
 ## [2.1.1] - 2026-03-17
 
 ### 🔧 Modularização
