@@ -9,6 +9,8 @@
   },
   "files": [
     "dist",
+    "slack-bot",
+    "qa-lab-agent.config.json",
     "qa-lab-flows.json.example"
   ],
   "scripts": {
