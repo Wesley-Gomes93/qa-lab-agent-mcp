@@ -1,115 +1,66 @@
 # QA Lab Slack Bot
 
-Bot do Slack que integra com o **mcp-lab-agent**: análise de projeto, criação de testes E2E e relatórios via chat.
+Bot Slack que analisa projetos e gera testes via **mcp-lab-agent**.
 
-## Requisitos
+## Configuração (3 passos)
 
-- Node.js 18+
-- mcp-lab-agent publicado no npm ou disponível via `npx`
-- Slack App configurada
-- Repositórios acessíveis (git clone)
+### 1. Crie o bot no Slack
 
-## Configuração
+1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
+2. **OAuth & Permissions** → Scopes: `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`
+3. **Event Subscriptions** → Enable → URL: `https://SEU_DOMINIO/slack/events` → event: `app_mention`
+4. **Install to Workspace** → copie o token (`xoxb-...`)
+5. **Basic Information** → copie o **Signing Secret**
 
-### 1. Slack App (api.slack.com/apps)
+### 2. Configure o .env
 
-1. Crie uma app → **From scratch**
-2. **OAuth & Permissions** → Bot Token Scopes:
-   - `app_mentions:read`
-   - `chat:write`
-   - `channels:history`
-   - `channels:read`
-3. **Event Subscriptions** → Enable
-   - Request URL: `https://SEU_DOMINIO/slack/events`
-   - Subscribe to bot events: `app_mention`
-4. **Install to Workspace** → copie o Bot User OAuth Token
-5. **Basic Information** → copie o Signing Secret
+```bash
+cd slack-bot
+cp .env.example .env
+```
 
-### 2. Config do projeto
+Edite `.env` e preencha:
 
-Edite **`qa-lab-agent.config.json`** na raiz do projeto:
+```
+SLACK_BOT_TOKEN=xoxb-seu-token
+SLACK_SIGNING_SECRET=seu-secret
+```
+
+### 3. Configure o repositório
+
+**Opção A** — No `qa-lab-agent.config.json` (raiz do projeto):
 
 ```json
 {
   "slack": {
-    "enabled": true,
-    "defaultRepo": {
-      "url": "https://github.com/sua-empresa/projeto.git",
-      "branch": "main"
-    },
-    "channels": {
-      "C01234ABC": {
-        "repo": "https://github.com/sua-empresa/frontend.git",
-        "branch": "main",
-        "name": "#qa-frontend"
-      }
-    },
-    "mcpLabAgent": {
-      "command": "npx",
-      "args": ["-y", "mcp-lab-agent@latest"]
-    }
+    "repo": "https://github.com/sua-empresa/projeto.git",
+    "branch": "main"
   }
 }
 ```
 
-Para obter o ID do canal: botão direito no canal → "View channel details" → Channel ID.
+**Opção B** — No `.env`:
 
-### 3. Secrets (.env)
-
-```bash
-cp .env.example .env
-# Edite .env com:
-# SLACK_BOT_TOKEN=xoxb-...
-# SLACK_SIGNING_SECRET=...
-# GROQ_API_KEY=... (ou outro LLM)
+```
+REPO_URL=https://github.com/sua-empresa/projeto.git
+REPO_BRANCH=main
 ```
 
-## Uso
+---
+
+## Rodar
 
 ```bash
-cd slack-bot
-npm install
 npm start
 ```
 
-Para desenvolvimento local com ngrok:
+Local com ngrok: `ngrok http 3000` e use a URL em Event Subscriptions.
 
-```bash
-ngrok http 3000
-# Use a URL do ngrok em Event Subscriptions
-```
+---
 
-## Comandos no Slack
-
-Mencione o bot no canal:
+## Uso no Slack
 
 ```
-@qa-bot analise o projeto
-@qa-bot crie testes E2E para login
-@qa-bot relatório completo
+@QA Lab Bot analise o projeto
+@QA Lab Bot crie testes para login
 ```
-
-O bot responde na thread com o relatório do mcp-lab-agent.
-
-## Estrutura
-
-```
-slack-bot/
-├── src/
-│   ├── index.js           # Entrada Bolt
-│   ├── config.js          # Carrega qa-lab-agent.config.json
-│   ├── handlers/
-│   │   └── app-mention.js # Trata @qa-bot
-│   ├── workers/
-│   │   └── qa-job.js      # Clona repo, executa mcp-lab-agent
-│   └── utils/
-│       └── report.js      # Formata output para Slack
-├── .env.example
-├── package.json
-└── README.md
-```
-
-## Documentação
-
-- [SLACK_VISAO_GERAL.md](../SLACK_VISAO_GERAL.md) — visão geral da integração
-- [docs/CONFIGURACAO_EMPRESA.md](../docs/CONFIGURACAO_EMPRESA.md) — config para empresa

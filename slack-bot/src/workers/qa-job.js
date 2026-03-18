@@ -62,7 +62,7 @@ function parseUserIntent(text) {
  * Executa o job QA: clona repo, roda mcp-lab-agent, retorna output.
  */
 export async function runQaJob({ channelId, userMessage }) {
-  const repo = getRepoForChannel(channelId);
+  const repo = getRepoForChannel();
   const { command, args } = getMcpLabAgentCmd();
   const baseDir = getCloneBaseDir();
   const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
