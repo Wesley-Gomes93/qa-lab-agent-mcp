@@ -36,6 +36,8 @@ function getSlackConfigFromMcp() {
     signingSecret: slack.signingSecret || slack.SLACK_SIGNING_SECRET,
     repo: slack.repo || slack.REPO_URL,
     branch: slack.branch || slack.REPO_BRANCH || "main",
+    useLocal: !!slack.useLocal,
+    workDir: slack.workDir,
   };
 }
 
@@ -63,6 +65,10 @@ function getSlackTokens() {
 
 function getRepoForChannel() {
   const fromMcp = getSlackConfigFromMcp();
+  if (fromMcp?.useLocal) {
+    const workDir = fromMcp.workDir || process.env.WORK_DIR || process.cwd();
+    return { useLocal: true, workDir };
+  }
   if (fromMcp?.repo) {
     return { url: fromMcp.repo, branch: fromMcp.branch || "main" };
   }
@@ -74,7 +80,7 @@ function getRepoForChannel() {
   const repo = cfg?.repo || cfg?.defaultRepo?.url;
   const branch = cfg?.branch || cfg?.defaultRepo?.branch || "main";
   if (!repo) {
-    throw new Error("Configure 'slack.repo' no ~/.cursor/mcp.json ou em qa-lab-agent.config.json");
+    return { useLocal: true, workDir: process.env.WORK_DIR || process.cwd() };
   }
   return { url: repo, branch };
 }

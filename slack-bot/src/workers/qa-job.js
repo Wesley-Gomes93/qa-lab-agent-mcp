@@ -70,12 +70,17 @@ export async function runQaJob({ channelId, userMessage }) {
 
   const outputs = [];
   let lastError = null;
+  let cwd = workDir;
 
-  try {
-    await ensureRepo(repo.url, repo.branch, workDir);
-  } catch (err) {
-    lastError = `Erro ao clonar repositório: ${err.message}`;
-    return { ok: false, output: lastError, error: err.message };
+  if (repo.useLocal) {
+    cwd = repo.workDir;
+  } else {
+    try {
+      await ensureRepo(repo.url, repo.branch, workDir);
+    } catch (err) {
+      lastError = `Erro ao clonar repositório: ${err.message}`;
+      return { ok: false, output: lastError, error: err.message };
+    }
   }
 
   const intent = parseUserIntent(userMessage);
@@ -83,7 +88,7 @@ export async function runQaJob({ channelId, userMessage }) {
   try {
     if (intent.runAuto) {
       const autoArgs = [...args, "auto", intent.autoDescription];
-      const res = await runCommand(command, autoArgs, workDir);
+      const res = await runCommand(command, autoArgs, cwd);
       outputs.push("=== mcp-lab-agent auto ===\n" + res.stdout);
       if (res.stderr) outputs.push(res.stderr);
       if (res.code !== 0) {
@@ -93,7 +98,7 @@ export async function runQaJob({ channelId, userMessage }) {
 
     if (intent.runAnalyze) {
       const analyzeArgs = [...args, "analyze"];
-      const res = await runCommand(command, analyzeArgs, workDir);
+      const res = await runCommand(command, analyzeArgs, cwd);
       outputs.push("=== mcp-lab-agent analyze ===\n" + res.stdout);
       if (res.stderr) outputs.push(res.stderr);
     }
@@ -101,9 +106,11 @@ export async function runQaJob({ channelId, userMessage }) {
     lastError = err.message;
     outputs.push(`Erro: ${err.message}`);
   } finally {
-    try {
-      if (fs.existsSync(workDir)) fs.rmSync(workDir, { recursive: true });
-    } catch {}
+    if (!repo.useLocal) {
+      try {
+        if (fs.existsSync(workDir)) fs.rmSync(workDir, { recursive: true });
+      } catch {}
+    }
   }
 
   const output = outputs.join("\n\n").trim() || lastError || "Nenhum output.";

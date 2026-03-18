@@ -46,7 +46,9 @@ O agente:
 
 ## Configurações
 
-**Primeira vez?** Veja [CONFIGURACOES.md](CONFIGURACOES.md) — lista de arquivos e onde colocar cada configuração.
+**Primeira vez?** Veja [CONFIGURACOES.md](CONFIGURACOES.md).
+
+**Slack Bot:** [COMO_CRIAR_APP_SLACK.md](COMO_CRIAR_APP_SLACK.md) — passo a passo para criar o app e obter token/secret.
 
 ---
 

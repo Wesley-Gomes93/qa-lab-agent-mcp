@@ -9,8 +9,10 @@
   "qa-lab-agent": {
     "slack": {
       "id": "C01234ABC",
-      "repo": "https://github.com/sua-empresa/projeto.git",
-      "branch": "main"
+      "branch": "main",
+      "useLocal": true,
+      "botToken": "xoxb-...",
+      "signingSecret": "..."
     }
   }
 }
