@@ -3,23 +3,16 @@
  * QA Lab Slack Bot
  * Recebe @mentions no Slack, executa mcp-lab-agent e posta relatório.
  *
- * Config: qa-lab-agent.config.json (slack section)
- * Secrets: .env (SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET)
+ * Config: ~/.cursor/mcp.json (qa-lab-agent.slack) ou .env
  */
 import { App } from "@slack/bolt";
-import { config } from "dotenv";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { getSlackTokens } from "./config.js";
 import { registerAppMention } from "./handlers/app-mention.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-config({ path: path.join(__dirname, "..", ".env") });
-
-const token = process.env.SLACK_BOT_TOKEN;
-const signingSecret = process.env.SLACK_SIGNING_SECRET;
+const { token, signingSecret } = getSlackTokens();
 
 if (!token || !signingSecret) {
-  console.error("Configure SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET no .env");
+  console.error("Configure no ~/.cursor/mcp.json:\n  \"qa-lab-agent\": { \"slack\": { \"botToken\": \"xoxb-...\", \"signingSecret\": \"...\" } }\n\nOu use .env (SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET)");
   process.exit(1);
 }
 

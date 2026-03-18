@@ -44,6 +44,12 @@ O agente:
 
 ---
 
+## Configurações
+
+**Primeira vez?** Veja [CONFIGURACOES.md](CONFIGURACOES.md) — lista de arquivos e onde colocar cada configuração.
+
+---
+
 ## Quick Start
 
 ### Análise Completa (CLI)

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "qa-lab-agent": {
+      "command": "npx",
+      "args": ["-y", "mcp-lab-agent@latest"],
+      "cwd": "${workspaceFolder}"
+    }
+  },
+  "qa-lab-agent": {
+    "slack": {
+      "id": "C01234ABC",
+      "repo": "https://github.com/sua-empresa/projeto.git",
+      "branch": "main"
+    }
+  }
+}
