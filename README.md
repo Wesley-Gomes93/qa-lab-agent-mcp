@@ -44,14 +44,6 @@ O agente:
 
 ---
 
-## Configurações
-
-**Primeira vez?** Veja [CONFIGURACOES.md](CONFIGURACOES.md).
-
-**Slack Bot:** [COMO_CRIAR_APP_SLACK.md](COMO_CRIAR_APP_SLACK.md) — passo a passo para criar o app e obter token/secret.
-
----
-
 ## Quick Start
 
 ### Análise Completa (CLI)
@@ -303,8 +295,6 @@ QA_LAB_LLM_BASE_URL=https://llm-interno.empresa.com/v1
 QA_LAB_LLM_API_KEY=sua-key-interna
 ```
 
-**Guia completo:** [CONFIGURACAO_CORPORATIVA.md](CONFIGURACAO_CORPORATIVA.md)
-
 ### Variáveis de ambiente (todas opcionais)
 
 | Variável | Uso |
@@ -330,13 +320,7 @@ npm install playwright
 
 ## Documentação
 
-- **[PITCH.md](PITCH.md)** — Apresentação executiva (use para apresentar ao time)
-- **[EXEMPLO_EVOLUCAO.md](EXEMPLO_EVOLUCAO.md)** — Como a taxa de sucesso melhora com o tempo
-- **[ARQUITETURA_LEARNING.md](ARQUITETURA_LEARNING.md)** — Detalhes técnicos do sistema de learning
 - **[CHANGELOG.md](CHANGELOG.md)** — Histórico de versões
-- **[MIGRATION_V2.md](MIGRATION_V2.md)** — Guia de migração da v1.x
-
-Documentação completa (local): `docs/`
 
 ---
 
