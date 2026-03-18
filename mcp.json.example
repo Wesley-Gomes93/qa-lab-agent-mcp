@@ -8,11 +8,10 @@
   },
   "qa-lab-agent": {
     "slack": {
-      "id": "C01234ABC",
-      "branch": "main",
-      "useLocal": true,
       "botToken": "xoxb-...",
-      "signingSecret": "..."
+      "appToken": "xapp-...",
+      "useLocal": true,
+      "branch": "main"
     }
   }
 }

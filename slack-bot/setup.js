@@ -14,21 +14,27 @@ console.log("\n🔧 QA Lab Slack Bot - Setup\n");
 
 if (!existsSync(envPath)) {
   copyFileSync(path.join(__dirname, ".env.example"), envPath);
-  console.log("✅ .env criado. Edite e preencha:");
-  console.log("   - SLACK_BOT_TOKEN (api.slack.com → sua app → OAuth)");
-  console.log("   - SLACK_SIGNING_SECRET (api.slack.com → Basic Information)\n");
+  console.log("✅ .env criado. Edite e preencha:\n");
+  console.log("   OBRIGATÓRIO: SLACK_BOT_TOKEN (xoxb-...)\n");
+  console.log("   Escolha UM modo:\n");
+  console.log("   • Socket Mode (qualquer ambiente): SLACK_APP_TOKEN (xapp-...)");
+  console.log("   • HTTP (ngrok): SLACK_SIGNING_SECRET\n");
   process.exit(0);
 }
 
 const env = readFileSync(envPath, "utf8");
 const hasToken = /SLACK_BOT_TOKEN=xoxb-/.test(env);
+const hasAppToken = /SLACK_APP_TOKEN=xapp-/.test(env);
 const hasSecret = /SLACK_SIGNING_SECRET=.{20,}/.test(env);
 
-if (!hasToken || !hasSecret) {
-  console.log("⚠️  .env existe mas faltam valores:");
-  if (!hasToken) console.log("   - SLACK_BOT_TOKEN");
-  if (!hasSecret) console.log("   - SLACK_SIGNING_SECRET");
-  console.log("\nEdite slack-bot/.env e preencha os valores.\n");
+if (!hasToken) {
+  console.log("⚠️  .env existe mas falta SLACK_BOT_TOKEN (xoxb-...)\n");
+  process.exit(1);
+}
+if (!hasAppToken && !hasSecret) {
+  console.log("⚠️  Configure um modo de conexão:");
+  console.log("   • Socket Mode (recomendado): SLACK_APP_TOKEN=xapp-...");
+  console.log("   • HTTP: SLACK_SIGNING_SECRET=...\n");
   process.exit(1);
 }
 

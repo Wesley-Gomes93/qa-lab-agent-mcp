@@ -7,7 +7,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");
 const SLACK_BOT_DIR = path.dirname(__dirname);
 
-config({ path: path.join(SLACK_BOT_DIR, ".env") });
+// Carrega .env de múltiplos locais (funciona em pessoal, corporativo, npx, etc.)
+// Ordem: cwd primeiro (override), depois package dir, depois QA_LAB_ENV
+const envPaths = [
+  process.env.QA_LAB_ENV,
+  path.join(process.cwd(), ".env"),
+  path.join(SLACK_BOT_DIR, ".env"),
+].filter(Boolean);
+for (const p of envPaths) {
+  if (p && existsSync(p)) {
+    config({ path: p });
+    break;
+  }
+}
 
 function getMcpJsonPath() {
   const home = process.env.HOME || process.env.USERPROFILE;
@@ -33,6 +45,7 @@ function getSlackConfigFromMcp() {
   return {
     id: slack.id || slack.channelId,
     botToken: slack.botToken || slack.SLACK_BOT_TOKEN,
+    appToken: slack.appToken || slack.slack_app_token || slack.SLACK_APP_TOKEN,
     signingSecret: slack.signingSecret || slack.SLACK_SIGNING_SECRET,
     repo: slack.repo || slack.REPO_URL,
     branch: slack.branch || slack.REPO_BRANCH || "main",
@@ -54,13 +67,10 @@ function loadSlackConfig() {
 
 function getSlackTokens() {
   const fromMcp = getSlackConfigFromMcp();
-  if (fromMcp?.botToken && fromMcp?.signingSecret) {
-    return { token: fromMcp.botToken, signingSecret: fromMcp.signingSecret };
-  }
-  return {
-    token: process.env.SLACK_BOT_TOKEN,
-    signingSecret: process.env.SLACK_SIGNING_SECRET,
-  };
+  const token = fromMcp?.botToken || process.env.SLACK_BOT_TOKEN;
+  const signingSecret = fromMcp?.signingSecret || process.env.SLACK_SIGNING_SECRET;
+  const appToken = fromMcp?.appToken || process.env.SLACK_APP_TOKEN;
+  return { token, signingSecret, appToken };
 }
 
 function getRepoForChannel() {
