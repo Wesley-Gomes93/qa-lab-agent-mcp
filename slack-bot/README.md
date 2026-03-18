@@ -2,6 +2,14 @@
 
 Bot Slack que analisa projetos e gera testes via **mcp-lab-agent**.
 
+## Rodar sem clonar o projeto
+
+```bash
+npx mcp-lab-agent slack-bot
+```
+
+Não precisa baixar o repo — o comando instala e executa o bot. Configure `~/.cursor/mcp.json` (ver seção abaixo).
+
 ## Configuração (3 passos)
 
 ### 1. Crie o bot no Slack
@@ -12,18 +20,26 @@ Bot Slack que analisa projetos e gera testes via **mcp-lab-agent**.
 4. **Install to Workspace** → copie o token (`xoxb-...`)
 5. **Basic Information** → copie o **Signing Secret**
 
-### 2. Configure o .env
+### 2. Configure tokens
+
+**Opção A** — No `~/.cursor/mcp.json` (recomendado):
+
+```json
+{
+  "qa-lab-agent": {
+    "slack": {
+      "botToken": "xoxb-seu-token",
+      "signingSecret": "seu-secret"
+    }
+  }
+}
+```
+
+**Opção B** — Via `.env` (se rodar da pasta slack-bot):
 
 ```bash
-cd slack-bot
-cp .env.example .env
-```
-
-Edite `.env` e preencha:
-
-```
-SLACK_BOT_TOKEN=xoxb-seu-token
-SLACK_SIGNING_SECRET=seu-secret
+cd slack-bot && cp .env.example .env
+# Edite .env com SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET
 ```
 
 ### 3. Configure o repositório

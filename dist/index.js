@@ -8,6 +8,7 @@ import { z } from "zod";
 import { spawn as spawn2 } from "child_process";
 import path5 from "path";
 import fs5 from "fs";
+import { fileURLToPath, pathToFileURL } from "url";
 
 // src/core/llm-router.js
 function resolveLLMProvider(taskType = "simple") {
@@ -593,7 +594,8 @@ USO:
   mcp-lab-agent --help     # Mostra esta ajuda
 
 COMANDOS CLI:
-  analyze                               [NOVO] An\xE1lise completa: executa, analisa estabilidade, prev\xEA riscos e recomenda a\xE7\xF5es
+  slack-bot                             Inicia o Slack Bot (QA via @mention) - sem precisar clonar o repo
+  analyze                               An\xE1lise completa: executa, analisa estabilidade, prev\xEA riscos e recomenda a\xE7\xF5es
   auto <descri\xE7\xE3o> [--max-retries N]    Modo aut\xF4nomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
   stats                                 Mostra estat\xEDsticas de aprendizado (taxa de sucesso, corre\xE7\xF5es, etc.)
   detect [--json]                       Detecta frameworks e estrutura
@@ -601,6 +603,8 @@ COMANDOS CLI:
   list                                  Lista ferramentas MCP dispon\xEDveis
 
 EXEMPLOS:
+  mcp-lab-agent slack-bot                       # Slack Bot (configure em ~/.cursor/mcp.json)
+  npx mcp-lab-agent slack-bot                   # Usar sem instalar (sem clonar o projeto)
   mcp-lab-agent analyze                         # An\xE1lise completa + recomenda\xE7\xF5es
   mcp-lab-agent auto "login flow" --max-retries 5
   mcp-lab-agent stats
@@ -3483,6 +3487,14 @@ test.describe('${type.toUpperCase()} Test', () => {
   }
 );
 async function main() {
+  const cmd = process.argv[2];
+  if (cmd === "slack-bot") {
+    const __dirname2 = path5.dirname(fileURLToPath(import.meta.url));
+    const slackBotPath = path5.join(__dirname2, "..", "slack-bot", "src", "index.js");
+    const slackBotUrl = pathToFileURL(slackBotPath).href;
+    await import(slackBotUrl);
+    return;
+  }
   const handled = await handleCLI();
   if (handled) {
     process.exit(0);

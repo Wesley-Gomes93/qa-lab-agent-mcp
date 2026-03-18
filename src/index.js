@@ -11,6 +11,7 @@ import { z } from "zod";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveLLMProvider, TASK_COMPLEXITY } from "./core/llm-router.js";
 import { loadProjectMemory, saveProjectMemory, getMemoryStats, analyzeTestStability } from "./core/memory.js";
@@ -2777,6 +2778,15 @@ test.describe('${type.toUpperCase()} Test', () => {
 );
 
 async function main() {
+  const cmd = process.argv[2];
+  if (cmd === "slack-bot") {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const slackBotPath = path.join(__dirname, "..", "slack-bot", "src", "index.js");
+    const slackBotUrl = pathToFileURL(slackBotPath).href;
+    await import(slackBotUrl);
+    return; // never reached (slack-bot runs until exit)
+  }
+
   const handled = await handleCLI();
   if (handled) {
     process.exit(0);

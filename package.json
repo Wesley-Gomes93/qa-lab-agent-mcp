@@ -55,7 +55,8 @@
     "zod": "^3.25.0"
   },
   "optionalDependencies": {
-    "playwright": "^1.49.0"
+    "playwright": "^1.49.0",
+    "@slack/bolt": "^3.21.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",

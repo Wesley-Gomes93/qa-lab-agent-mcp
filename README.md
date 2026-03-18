@@ -59,6 +59,14 @@ npx mcp-lab-agent auto "login flow" --max-retries 5
 npx mcp-lab-agent stats
 ```
 
+### Slack Bot (sem clonar o projeto)
+
+```bash
+npx mcp-lab-agent slack-bot
+```
+
+Configure `~/.cursor/mcp.json` com `"qa-lab-agent": { "slack": { "botToken": "xoxb-...", "signingSecret": "..." } }`. O bot roda localmente; use ngrok para expor em desenvolvimento.
+
 ### Integração com IDE (Cursor/Cline/Windsurf)
 
 **1. Configure o MCP** (`~/.cursor/mcp.json`):
