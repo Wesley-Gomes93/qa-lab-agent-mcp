@@ -1,0 +1,33 @@
+{
+  "mcp": {
+    "description": "Adicione ao ~/.cursor/mcp.json para usar no Cursor",
+    "command": "npx",
+    "args": ["-y", "mcp-lab-agent@latest"],
+    "cwd": "${workspaceFolder}"
+  },
+  "slack": {
+    "enabled": true,
+    "appName": "QA Lab Bot",
+    "botName": "@qa-bot",
+    "defaultRepo": {
+      "url": "https://github.com/Wesley-Gomes93/mcp-lab-agent.git",
+      "branch": "main"
+    },
+    "channels": {
+      "C01234ABC": {
+        "repo": "https://github.com/sua-empresa/frontend.git",
+        "branch": "main",
+        "name": "#qa-frontend"
+      },
+      "C05678DEF": {
+        "repo": "https://github.com/sua-empresa/api.git",
+        "branch": "main",
+        "name": "#qa-api"
+      }
+    },
+    "mcpLabAgent": {
+      "command": "npx",
+      "args": ["-y", "mcp-lab-agent@latest"]
+    }
+  }
+}

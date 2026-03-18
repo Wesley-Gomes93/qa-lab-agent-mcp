@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "slack-bot": "node slack-bot/src/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
