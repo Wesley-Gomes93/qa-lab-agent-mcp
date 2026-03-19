@@ -3000,6 +3000,13 @@ test.describe('${type.toUpperCase()} Test', () => {
 
 async function main() {
   const cmd = process.argv[2];
+  if (cmd === "learning-hub") {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const hubPath = path.join(__dirname, "..", "learning-hub", "src", "server.js");
+    const hubUrl = pathToFileURL(hubPath).href;
+    await import(hubUrl);
+    return;
+  }
   if (cmd === "slack-bot") {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const slackBotPath = path.join(__dirname, "..", "slack-bot", "src", "index.js");

@@ -41,7 +41,8 @@ USO:
   mcp-lab-agent --help     # Mostra esta ajuda
 
 COMANDOS CLI:
-  slack-bot                             Inicia o Slack Bot (QA via @mention) - sem precisar clonar o repo
+  slack-bot                             Inicia o Slack Bot (QA via @mention)
+  learning-hub                          Inicia o Learning Hub (API + Dashboard em http://localhost:3847)
   analyze                               Análise completa: executa, analisa estabilidade, prevê riscos e recomenda ações
   auto <descrição> [--max-retries N]    Modo autônomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
   stats                                 Estatísticas de aprendizado (taxa de sucesso, correções, etc.)
@@ -51,7 +52,8 @@ COMANDOS CLI:
   list                                  Lista ferramentas MCP disponíveis
 
 EXEMPLOS:
-  mcp-lab-agent slack-bot                       # Slack Bot (configure em ~/.cursor/mcp.json)
+  mcp-lab-agent slack-bot                       # Slack Bot
+  mcp-lab-agent learning-hub                   # Learning Hub (API + Dashboard)
   npx mcp-lab-agent slack-bot                   # Usar sem instalar (sem clonar o projeto)
   mcp-lab-agent analyze                         # Análise completa + recomendações
   mcp-lab-agent auto "login flow" --max-retries 5

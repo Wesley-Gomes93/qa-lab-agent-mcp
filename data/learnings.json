@@ -1,0 +1,10 @@
+[
+  {
+    "type": "selector_fix",
+    "framework": "playwright",
+    "request": "login",
+    "success": false,
+    "id": "1773880824140-dqq8blm",
+    "receivedAt": "2026-03-19T00:40:24.140Z"
+  }
+]

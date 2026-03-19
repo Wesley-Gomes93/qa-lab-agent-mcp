@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QA Lab - Learning Hub Dashboard</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 1.5rem; background: #0f172a; color: #e2e8f0; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
+    .sub { color: #94a3b8; font-size: 0.875rem; margin-bottom: 1.5rem; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    .card { background: #1e293b; border-radius: 8px; padding: 1rem; border: 1px solid #334155; }
+    .card h3 { margin: 0 0 0.5rem; font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; }
+    .card .val { font-size: 1.75rem; font-weight: 700; }
+    .card.green .val { color: #22c55e; }
+    .card.yellow .val { color: #eab308; }
+    .card.red .val { color: #ef4444; }
+    .section { margin-top: 1.5rem; }
+    .section h2 { font-size: 1rem; margin: 0 0 0.75rem; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { padding: 0.35rem 0; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; }
+    li:last-child { border-bottom: none; }
+    .rec { background: #1e293b; border-radius: 8px; padding: 1rem; margin-top: 0.5rem; border-left: 4px solid #3b82f6; }
+    .error { color: #ef4444; }
+    .refresh { background: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.875rem; }
+    .refresh:hover { background: #2563eb; }
+  </style>
+</head>
+<body>
+  <h1>QA Lab Learning Hub</h1>
+  <p class="sub">Dashboard centralizado de aprendizados</p>
+  <button class="refresh" onclick="load()">Atualizar</button>
+
+  <div class="grid" id="metrics"></div>
+  <div class="section">
+    <h2>Padrões por tipo</h2>
+    <ul id="byType"></ul>
+  </div>
+  <div class="section">
+    <h2>Recomendações</h2>
+    <div id="recs"></div>
+  </div>
+
+  <script>
+    const base = window.location.origin;
+    async function load() {
+      try {
+        const r = await fetch(base + '/patterns?limit=500');
+        const d = await r.json();
+
+        document.getElementById('metrics').innerHTML = [
+          { k: 'Taxa de sucesso (1ª tent.)', v: d.firstAttemptSuccessRate + '%', c: d.firstAttemptSuccessRate >= 70 ? 'green' : d.firstAttemptSuccessRate >= 50 ? 'yellow' : 'red' },
+          { k: 'Total de aprendizados', v: d.total, c: '' },
+          { k: 'Testes gerados', v: d.testGenerated, c: '' },
+        ].map(x => `<div class="card ${x.c}"><h3>${x.k}</h3><div class="val">${x.v}</div></div>`).join('');
+
+        const byType = Object.entries(d.byType || {}).filter(([,n]) => n > 0).sort((a,b) => b[1]-a[1]);
+        document.getElementById('byType').innerHTML = byType.length
+          ? byType.map(([t,n]) => `<li><span>${t}</span><strong>${n}</strong></li>`).join('')
+          : '<li class="error">Nenhum aprendizado ainda</li>';
+
+        document.getElementById('recs').innerHTML = (d.recommendations || [])
+          .map(r => `<div class="rec">${r}</div>`).join('') || '<div class="rec">Continue gerando testes.</div>';
+      } catch (e) {
+        document.getElementById('metrics').innerHTML = `<div class="card error"><h3>Erro</h3><div class="val">${e.message}</div></div>`;
+      }
+    }
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>

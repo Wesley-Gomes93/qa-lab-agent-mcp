@@ -1,0 +1,17 @@
+{
+  "name": "qa-lab-learning-hub",
+  "version": "1.0.0",
+  "description": "Learning Hub - API centralizada para aprendizados do mcp-lab-agent",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": ["qa", "mcp-lab-agent", "learning", "dashboard"],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

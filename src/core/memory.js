@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
+import { syncLearningsToHub } from "./hub-client.js";
 
 const PROJECT_ROOT = process.cwd();
 const MEMORY_FILE = path.join(PROJECT_ROOT, ".qa-lab-memory.json");
@@ -33,6 +34,7 @@ export function saveProjectMemory(updates) {
       data.learnings = data.learnings || [];
       data.learnings.push(...updates.learnings);
       if (data.learnings.length > 200) data.learnings = data.learnings.slice(-150);
+      syncLearningsToHub(updates.learnings).catch(() => {});
     }
     if (updates.execution) {
       data.executions = data.executions || [];

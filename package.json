@@ -9,6 +9,7 @@
   },
   "files": [
     "dist",
+    "learning-hub",
     "slack-bot",
     "qa-lab-agent.config.json",
     "qa-lab-flows.json.example"
@@ -17,6 +18,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "slack-bot": "node slack-bot/src/index.js",
+    "learning-hub": "node learning-hub/src/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
