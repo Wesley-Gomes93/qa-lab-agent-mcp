@@ -18,6 +18,35 @@ npx mcp-lab-agent auto "login flow" --max-retries 5
 
 ---
 
+## Destaques
+
+### 🤖 Agente MCP (Cursor, Cline, Windsurf)
+
+| Função | Descrição |
+|--------|-----------|
+| **Detecção automática** | Identifica frameworks (Cypress, Playwright, Jest, Appium, Detox, Robot, pytest) e estrutura do projeto |
+| **Geração de testes** | Cria casos de teste com LLM + memória de aprendizados anteriores |
+| **Execução** | Roda testes (E2E, unit, mobile, API) com device config e auto-fix de seletores |
+| **"Por que falhou?"** | Diagnóstico em 1 frase: causa, solução e sugestão de correção |
+| **Análise de falhas** | Classifica timing, selector, element_not_visible, flaky — sugere fix aplicável |
+| **Learning system** | Cada correção bem-sucedida melhora as próximas gerações de testes |
+| **Relatórios** | Bug reports, métricas, coverage, `flaky-report`, evolução de aprendizado |
+
+*Use no chat: "Gere teste para login", "Por que o teste falhou?", "Roda o teste X"*
+
+### 💬 Slack Bot
+
+| Função | Descrição |
+|--------|-----------|
+| **QA via @mention** | Mencione o bot em qualquer canal — executa testes e posta relatório |
+| **Socket Mode** | Funciona em ambiente corporativo, sem URL pública (sem ngrok) |
+| **Integração total** | Usa o mesmo agente: detecta projeto, roda testes, analisa falhas |
+| **Zero config no Slack** | Configure `botToken` e `appToken` em `~/.cursor/mcp.json` uma vez |
+
+*Ideal para times que querem QA no fluxo do Slack — "Roda os testes do checkout" em um @mention.*
+
+---
+
 ## O que é
 
 O **mcp-lab-agent** é um sistema de inteligência em qualidade de software — não uma ferramenta de teste isolada. Ele entende o seu projeto, identifica frameworks (Cypress, Playwright, Jest, Appium, Robot, pytest e outros), gera testes com base em contexto e memória, executa, analisa falhas e aplica correções automaticamente. O valor central está no **learning**: cada correção bem-sucedida é salva e usada nas próximas gerações, aumentando a taxa de sucesso na primeira tentativa.
