@@ -1,7 +1,7 @@
 {
   "name": "mcp-lab-agent",
   "version": "2.1.4",
-  "description": "Autonomous QA agent: executor + intelligent consultant - analyzes, predicts, recommends and learns (modular)",
+  "description": "Sistema de Inteligência em Qualidade de Software: executa, analisa, prevê, recomenda e aprende. Memória local + Learning Hub.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

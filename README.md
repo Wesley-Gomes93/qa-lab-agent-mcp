@@ -4,14 +4,16 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Executor + Consultor Inteligente de QA.**
+**Sistema de Inteligência em Qualidade de Software.**
 
-Não é só um executor de testes. É um agente que:
+Não é uma ferramenta de teste. É um sistema que **entende qualidade**:
 - **Executa:** Roda testes, gera, corrige
-- **Analisa:** "login falha 30% das vezes"
+- **Analisa:** "login falha 30% das vezes (timing)"
 - **Prevê:** "checkout vai ficar flaky"
 - **Recomenda:** "faça isso agora: 1, 2, 3"
-- **Aprende:** Taxa de sucesso aumenta com o tempo
+- **Aprende:** Memória local + Learning Hub = inteligência acumulativa
+
+**Memória local → Inteligência global.** Cada projeto aprende sozinho; com o Learning Hub, os aprendizados se acumulam entre projetos.
 
 **1 comando. Análise completa.**
 
@@ -237,8 +239,7 @@ flowchart TB
 | **Flaky-aware** | Detecta timing, selector, network, element_not_rendered, element_not_visible, element_stale; mensagens adaptadas ao erro |
 | **Inteligência** | qa_full_analysis, qa_health_check, qa_suggest_next_test, qa_predict_flaky, qa_compare_with_industry, qa_time_travel |
 | **Model routing** | Tarefas simples → modelo barato; complexas → modelo forte |
-| **Memória** | Cache em .qa-lab-memory.json, qa-lab-flows.json |
-| **Inteligência** | qa_full_analysis, qa_health_check, qa_suggest_next_test, qa_predict_flaky, qa_compare_with_industry, qa_time_travel |
+| **Memória** | Local: .qa-lab-memory.json. Global: Learning Hub (API + Dashboard, sync automático) |
 
 ---
 
@@ -251,6 +252,7 @@ mcp-lab-agent [comando]
 | Comando | Descrição |
 |---------|-----------|
 | *(sem args)* | Inicia o servidor MCP (modo padrão para o IDE) |
+| `learning-hub` | API + Dashboard central (porta 3847). Padrões agregados, sync entre projetos |
 | `slack-bot` | Slack Bot (QA via @mention). Funciona em PC corporativo (Socket Mode) |
 | `analyze` | Análise completa: executa, analisa estabilidade, prevê riscos, recomenda ações |
 | `auto <descrição> [--max-retries N]` | Modo autônomo: gera, roda, corrige e aprende (default: 3 tentativas) |
@@ -263,6 +265,7 @@ mcp-lab-agent [comando]
 
 **Exemplos:**
 ```bash
+mcp-lab-agent learning-hub         # Inicia API + Dashboard (porta 3847)
 mcp-lab-agent slack-bot
 mcp-lab-agent analyze
 mcp-lab-agent auto "login flow" --max-retries 5
@@ -298,10 +301,10 @@ Referência completa do CLI: `mcp-lab-agent --help`
 - `stats` retorna JSON estruturado
 - Integração com Grafana/DataDog via script
 
-**4. Aprendizado compartilhado (roadmap):**
-- Exportar/importar memórias entre projetos
-- Central de aprendizados da empresa
-- Padrões globais + overrides locais
+**4. Inteligência global (Learning Hub):**
+- API central: `POST /learning`, `GET /patterns`
+- Dashboard web: taxa de sucesso, padrões por tipo, recomendações
+- Sync automático: cada agente envia learnings; o Hub agrega entre projetos
 
 **5. Customização:**
 - `qa-lab-flows.json` para fluxos de negócio específicos
@@ -358,6 +361,8 @@ QA_LAB_LLM_API_KEY=sua-key-interna
 | `QA_LAB_LLM_API_KEY` | API key para LLM customizado |
 | `QA_LAB_LLM_SIMPLE` | Modelo para tarefas simples |
 | `QA_LAB_LLM_COMPLEX` | Modelo para tarefas complexas |
+| `LEARNING_HUB_URL` | URL do Learning Hub (ex: http://localhost:3847). Se definido, learnings são enviados automaticamente |
+| `LEARNING_HUB_PROJECT_ID` | Identificador do projeto no Hub (agregação por projeto) |
 
 ### Modo browser (opcional)
 
