@@ -76,7 +76,7 @@ Configure `~/.cursor/mcp.json` com `"qa-lab-agent": { "slack": { "botToken": "xo
   "mcpServers": {
     "qa-lab-agent": {
       "command": "npx",
-      "args": ["-y", "mcp-lab-agent"],
+      "args": ["-y", "mcp-lab-agent@latest"],
       "cwd": "${workspaceFolder}"
     }
   }

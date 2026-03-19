@@ -18,7 +18,7 @@ const QA_AGENTS = {
   browser: { desc: "Browser mode: screenshots, network, console", tools: ["web_eval_browser"] },
   reporting: { desc: "Relatórios e métricas", tools: ["create_bug_report", "get_business_metrics"] },
   intelligence: { desc: "Análise preditiva e insights", tools: ["qa_full_analysis", "qa_health_check", "qa_suggest_next_test", "qa_predict_flaky", "qa_compare_with_industry", "qa_time_travel"] },
-  learning: { desc: "Sistema de aprendizado", tools: ["qa_learning_stats"] },
+  learning: { desc: "Sistema de aprendizado", tools: ["qa_learning_stats", "get_learning_report"] },
   maintenance: { desc: "Linter, deps, análise de código", tools: ["run_linter", "install_dependencies"] },
 };
 
@@ -44,7 +44,8 @@ COMANDOS CLI:
   slack-bot                             Inicia o Slack Bot (QA via @mention) - sem precisar clonar o repo
   analyze                               Análise completa: executa, analisa estabilidade, prevê riscos e recomenda ações
   auto <descrição> [--max-retries N]    Modo autônomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
-  stats                                 Mostra estatísticas de aprendizado (taxa de sucesso, correções, etc.)
+  stats                                 Estatísticas de aprendizado (taxa de sucesso, correções, etc.)
+  report [--full]                        Relatório de evolução e aprendizado (--full = completo com recomendações)
   detect [--json]                       Detecta frameworks e estrutura
   route <tarefa>                        Sugere qual ferramenta usar
   list                                  Lista ferramentas MCP disponíveis
@@ -133,6 +134,8 @@ AMBIENTES CORPORATIVOS (APIs bloqueadas):
 
   if (cmd === "stats") {
     const stats = getMemoryStats();
+    const byType = stats.byLearningType || {};
+    const byTypeLines = Object.entries(byType).filter(([, v]) => v > 0).map(([t, v]) => `  ${t}: ${v}`).join("\n");
     console.log(`
 📊 Estatísticas de Aprendizado
 
@@ -142,8 +145,44 @@ Correções de seletores: ${stats.selectorFixes}
 Correções de timing: ${stats.timingFixes}
 Testes gerados: ${stats.testsGenerated}
 Taxa de sucesso na 1ª tentativa: ${stats.firstAttemptSuccessRate}%
+${byTypeLines ? `\nPor tipo:\n${byTypeLines}` : ""}
 
 ${stats.totalLearnings === 0 ? "⚠️ Ainda não há aprendizados. Use 'mcp-lab-agent auto <descrição>' para gerar testes e aprender com erros." : ""}
+`);
+    return true;
+  }
+
+  if (cmd === "report") {
+    const memory = loadProjectMemory();
+    const learnings = memory.learnings || [];
+    const stats = getMemoryStats();
+    const byType = stats.byLearningType || {};
+    const format = process.argv.includes("--full") ? "full" : "summary";
+    const recommendations = [];
+    if (byType.element_not_rendered > 0 || byType.element_not_visible > 0) {
+      recommendations.push("Use waits explícitos (waitForSelector, waitForDisplayed) ANTES de interagir com elementos.");
+    }
+    if (byType.timing_fix > 0 || byType.element_stale > 0) {
+      recommendations.push("Aumente timeouts e use re-localização de elementos em listas dinâmicas.");
+    }
+    if (byType.selector_fix > 0 || byType.mobile_mapping_invisible > 0) {
+      recommendations.push("Priorize data-testid, role e seletores estáveis; em mobile, use mapeamento visível no topo do spec.");
+    }
+    if (stats.firstAttemptSuccessRate < 70 && stats.testsGenerated > 0) {
+      recommendations.push("Aplique waits inteligentes + assert final em cada teste gerado.");
+    }
+    const byTypeStr = Object.entries(byType).filter(([, v]) => v > 0).map(([t, v]) => `  - ${t}: ${v}`).join("\n");
+    console.log(`
+📈 Relatório de Evolução e Aprendizado
+
+Resumo por tipo:
+${byTypeStr || "  Nenhum aprendizado por tipo ainda"}
+
+Métricas gerais:
+  Total de aprendizados: ${stats.totalLearnings}
+  Taxa de sucesso (1ª tentativa): ${stats.firstAttemptSuccessRate}%
+  Testes gerados: ${stats.testsGenerated}
+${format === "full" && recommendations.length > 0 ? `\nRecomendações para aprimorar o código:\n${recommendations.map((r) => `  • ${r}`).join("\n")}` : ""}
 `);
     return true;
   }

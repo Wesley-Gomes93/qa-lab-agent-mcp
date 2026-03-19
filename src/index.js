@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveLLMProvider, TASK_COMPLEXITY } from "./core/llm-router.js";
 import { loadProjectMemory, saveProjectMemory, getMemoryStats, analyzeTestStability } from "./core/memory.js";
-import { detectFlakyPatterns } from "./core/flaky-detection.js";
+import { detectFlakyPatterns, detectMobileMappingInvisible, formatLearnedMessageForUser, MOBILE_MAPPING_LESSON, inferFailurePattern, UNIVERSAL_TEST_PRACTICES } from "./core/flaky-detection.js";
 import { detectProjectStructure, collectTestFiles, inferFrameworkFromFile, matchesFramework, getFrameworkCwd, isTestFile, analyzeCodeRisks } from "./core/project-structure.js";
 import { parseTestRunResult, recordMetricEvent, extractFailuresFromOutput, generateFailureExplanation } from "./core/tool-helpers.js";
 import { handleCLI } from "./cli/commands.js";
@@ -100,7 +100,7 @@ server.registerTool(
   "detect_project",
   {
     title: "Detectar estrutura do projeto",
-    description: "Analisa o projeto e identifica frameworks de teste, pastas, backend, frontend.",
+    description: "Analisa o projeto e identifica frameworks de teste, pastas, backend, frontend, ambiente (web/mobile) e hints para geração de testes.",
     inputSchema: z.object({}),
     outputSchema: z.object({
       ok: z.boolean(),
@@ -112,16 +112,23 @@ server.registerTool(
         backendDir: z.string().nullable(),
         hasFrontend: z.boolean(),
         frontendDir: z.string().nullable(),
+        hasMobile: z.boolean().optional(),
+        environment: z.string().optional(),
+        environmentHints: z.array(z.string()).optional(),
       }),
     }),
   },
   async () => {
     const structure = detectProjectStructure();
+    const envLine = structure.environment
+      ? `Ambiente: ${structure.environment}${structure.environmentHints?.length ? ` (${structure.environmentHints.join(", ")})` : ""}`
+      : "";
     const summary = [
       `Frameworks de teste: ${structure.testFrameworks.join(", ") || "nenhum"}`,
       `Pastas de teste: ${structure.testDirs.join(", ") || "nenhuma"}`,
       `Backend: ${structure.backendDir || "não detectado"}`,
       `Frontend: ${structure.frontendDir || "não detectado"}`,
+      ...(envLine ? [envLine] : []),
     ].join("\n");
 
     return {
@@ -235,11 +242,11 @@ const QA_AGENTS = {
   intelligence: { tools: ["qa_full_analysis", "qa_health_check", "qa_suggest_next_test", "qa_predict_flaky", "qa_compare_with_industry"], desc: "Executor + Consultor: análise completa, diagnóstico, sugestões e predições" },
   detection: { tools: ["detect_project", "read_project", "list_test_files"], desc: "Detecção de estrutura, frameworks e arquivos" },
   execution: { tools: ["run_tests", "watch_tests", "get_test_coverage"], desc: "Execução de testes e cobertura" },
-  generation: { tools: ["generate_tests", "write_test", "create_test_template"], desc: "Geração de testes com LLM" },
+  generation: { tools: ["generate_tests", "write_test", "create_test_template", "map_mobile_elements"], desc: "Geração de testes com LLM" },
   analysis: { tools: ["analyze_failures", "por_que_falhou", "suggest_fix", "suggest_selector_fix"], desc: "Análise de falhas e sugestões" },
   browser: { tools: ["web_eval_browser"], desc: "Avaliação em browser real (screenshots, network, console)" },
   reporting: { tools: ["create_bug_report", "get_business_metrics"], desc: "Relatórios e métricas" },
-  learning: { tools: ["qa_learning_stats", "qa_time_travel"], desc: "Estatísticas de aprendizado e evolução" },
+  learning: { tools: ["qa_learning_stats", "get_learning_report", "qa_time_travel"], desc: "Estatísticas de aprendizado e evolução" },
   maintenance: { tools: ["run_linter", "install_dependencies", "analyze_file_methods"], desc: "Manutenção e análise de código" },
 };
 
@@ -272,8 +279,17 @@ server.registerTool(
     if (/rodar|executar|run|test|coverage|watch/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: execution → run_tests, get_test_coverage" }], structuredContent: { ok: true, suggestedAgent: "execution", suggestedTools: QA_AGENTS.execution.tools, description: QA_AGENTS.execution.desc } };
     }
+    if (/mapear|elementos mobile|deep link|deeplink|app package|bundle.?id|appium inspector/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: generation → map_mobile_elements (mapear elementos), depois generate_tests + write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: ["map_mobile_elements", "generate_tests", "write_test"], description: QA_AGENTS.generation.desc } };
+    }
+    if (/mapear|elementos mobile|deep link|deeplink|app package|bundle.?id/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: generation → map_mobile_elements (mapear elementos), depois generate_tests + write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: ["map_mobile_elements", "generate_tests", "write_test"], description: "Mapeamento de elementos mobile + geração de testes" } };
+    }
+    if (/mobile|deeplink|deep link|elementos|mapear.*app|appium|detox/i.test(t) && !/rodar|run|executar/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: generation → map_mobile_elements, generate_tests, write_test (mobile)" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS.generation.tools, description: QA_AGENTS.generation.desc } };
+    }
     if (/gerar|criar|escrever|generate|write|template/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: generation → generate_tests, write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS.generation.tools, description: QA_AGENTS.generation.desc } };
+      return { content: [{ type: "text", text: "Agente: generation → generate_tests, write_test, map_mobile_elements" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS.generation.tools, description: QA_AGENTS.generation.desc } };
     }
     if (/analisar|por que|falhou|suggest|correção|selector|fix/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: analysis → analyze_failures, por_que_falhou, suggest_fix" }], structuredContent: { ok: true, suggestedAgent: "analysis", suggestedTools: QA_AGENTS.analysis.tools, description: QA_AGENTS.analysis.desc } };
@@ -610,9 +626,15 @@ O código de referência pode estar em QUALQUER framework (Cypress, Robot, Playw
 - Mantenha a MESMA lógica e fluxo de teste
 - Traduza seletores, comandos e asserções para ${fw}
 - Use Page Objects se o projeto já usa
-- Retorne SOMENTE o código, sem markdown`
+- Retorne SOMENTE o código, sem markdown
+
+${UNIVERSAL_TEST_PRACTICES}
+${(fw === "appium" || fw === "detox") ? `\nIMPORTANTE: ${MOBILE_MAPPING_LESSON}` : ""}`
       : `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
 Framework: ${fw}
+
+${UNIVERSAL_TEST_PRACTICES}
+
 Regras:
 - Cypress: cy.request(), cy.visit(), cy.get()
 - Playwright: test(), test.describe(), page.goto(), page.locator()
@@ -620,7 +642,7 @@ Regras:
 - Jest/Vitest: describe(), test(), expect()
 - Robot: Keywords, [Tags], Steps
 - pytest: def test_*, assert, fixtures
-- Código limpo. Retorne SOMENTE o código, sem markdown`;
+- Código limpo. Retorne SOMENTE o código, sem markdown${(fw === "appium" || fw === "detox") ? `\n\nIMPORTANTE (Appium/Detox): ${MOBILE_MAPPING_LESSON}` : ""}`;
 
     const userPrompt = `Contexto do projeto:
 ${contextWithMemory.slice(0, 5000)}
@@ -1232,6 +1254,116 @@ ${testCode ? testCode.slice(0, 6000) : "Não disponível"}
         structuredContent: { ok: false, error: err.message },
       };
     }
+  }
+);
+
+server.registerTool(
+  "map_mobile_elements",
+  {
+    title: "Mapear elementos mobile (estrutura para testes)",
+    description: "Gera estrutura/template de elementos para testes mobile. Aceita deep link, appPackage/appActivity (Android) ou bundleId (iOS). Retorna instruções para mapear elementos (Appium Inspector, uiautomator) e template para usar em generate_tests. Se elementsJsonPath fornecido, lê arquivo e formata para contexto.",
+    inputSchema: z.object({
+      deepLink: z.string().optional().describe("Deep link do app (ex: meuapp://login). Indica ambiente mobile."),
+      appPackage: z.string().optional().describe("Android: package do app (ex: com.example.app)."),
+      appActivity: z.string().optional().describe("Android: activity principal (ex: .MainActivity)."),
+      bundleId: z.string().optional().describe("iOS: bundle identifier do app."),
+      elementsJsonPath: z.string().optional().describe("Caminho para arquivo JSON com elementos mapeados (id, text, accessibilityId, xpath)."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      environment: z.string().optional(),
+      elements: z.array(z.object({
+        id: z.string().optional(),
+        text: z.string().optional(),
+        accessibilityId: z.string().optional(),
+        xpath: z.string().optional(),
+        resourceId: z.string().optional(),
+        className: z.string().optional(),
+      })).optional(),
+      instructions: z.string().optional(),
+      contextForGenerate: z.string().optional().describe("Texto formatado para passar em generate_tests como contexto."),
+      error: z.string().optional(),
+    }),
+  },
+  async ({ deepLink, appPackage, appActivity, bundleId, elementsJsonPath }) => {
+    const hasMobileContext = deepLink || appPackage || bundleId;
+    const elements = [];
+    let instructions = "";
+    let contextForGenerate = "";
+
+    if (elementsJsonPath) {
+      const fullPath = path.join(PROJECT_ROOT, elementsJsonPath.replace(/^\//, "").replace(/\\/g, "/"));
+      if (fs.existsSync(fullPath)) {
+        try {
+          const raw = fs.readFileSync(fullPath, "utf8");
+          const parsed = JSON.parse(raw);
+          const arr = Array.isArray(parsed) ? parsed : (parsed.elements || parsed.items || []);
+          arr.forEach((el) => {
+            elements.push({
+              id: el.id || el.resourceId,
+              text: el.text || el.label,
+              accessibilityId: el.accessibilityId || el["content-desc"] || el.contentDesc,
+              xpath: el.xpath,
+              resourceId: el.resourceId || el.id,
+              className: el.className || el.class,
+            });
+          });
+          contextForGenerate = `\nElementos mapeados da tela (use para seletores estáveis em Appium/WDIO):\n${JSON.stringify(elements, null, 2)}\n`;
+        } catch (err) {
+          return {
+            content: [{ type: "text", text: `Erro ao ler ${elementsJsonPath}: ${err.message}` }],
+            structuredContent: { ok: false, error: err.message },
+          };
+        }
+      } else {
+        return {
+          content: [{ type: "text", text: `Arquivo não encontrado: ${elementsJsonPath}` }],
+          structuredContent: { ok: false, error: "File not found" },
+        };
+      }
+    }
+
+    if (hasMobileContext || elementsJsonPath) {
+      instructions = [
+        "## Como mapear elementos do app mobile",
+        "",
+        "**Android (Appium):**",
+        "- Use Appium Inspector (appium.io) com appPackage/appActivity",
+        "- Ou: `adb shell uiautomator dump` → analise o XML exportado",
+        "- Priorize: accessibility-id > resource-id > xpath relativo",
+        "",
+        "**iOS (Appium):**",
+        "- Appium Inspector com bundleId",
+        "- Xcode Accessibility Inspector",
+        "- Priorize: accessibility-id > name",
+        "",
+        "**Formato esperado (elements.json):**",
+        "```json",
+        '[{"accessibilityId": "login_btn", "text": "Entrar", "resourceId": "com.app:id/btn"}]',
+        "```",
+        "",
+        "Salve em um arquivo e passe em `elementsJsonPath` na próxima chamada.",
+      ].join("\n");
+    }
+
+    const env = deepLink ? "mobile" : (appPackage || bundleId) ? "mobile" : elements.length ? "mobile" : "unknown";
+    const text = [
+      contextForGenerate && `## Contexto para generate_tests\n${contextForGenerate}`,
+      instructions && `## Instruções\n${instructions}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    return {
+      content: [{ type: "text", text: text || (hasMobileContext ? `Ambiente: ${env}. ${instructions}` : "Informe deepLink, appPackage ou elementsJsonPath.") }],
+      structuredContent: {
+        ok: true,
+        environment: env,
+        elements: elements.length ? elements : undefined,
+        instructions: instructions || undefined,
+        contextForGenerate: contextForGenerate || undefined,
+      },
+    };
   }
 );
 
@@ -2274,6 +2406,76 @@ ${stats.totalLearnings === 0 ? "⚠️ Ainda não há aprendizados. Use qa_auto 
 );
 
 server.registerTool(
+  "get_learning_report",
+  {
+    title: "Relatório de evolução e aprendizado",
+    description: "Gera relatório de evolução dos aprendizados: resumo por tipo, evolução no tempo e recomendações para aprimorar o código.",
+    inputSchema: z.object({
+      format: z.enum(["summary", "full"]).optional().describe("summary = resumo executivo, full = relatório completo com recomendações. Default: summary"),
+    }),
+    outputSchema: z.object({
+      summary: z.string(),
+      byType: z.record(z.number()),
+      evolution: z.array(z.object({ date: z.string(), type: z.string(), framework: z.string() })).optional(),
+      recommendations: z.array(z.string()).optional(),
+    }),
+  },
+  async ({ format = "summary" }) => {
+    const memory = loadProjectMemory();
+    const learnings = memory.learnings || [];
+    const stats = getMemoryStats();
+
+    const byType = stats.byLearningType || {};
+    const evolution = format === "full" && learnings.length > 0
+      ? learnings.slice(-30).map((l) => ({
+          date: (l.timestamp || "").slice(0, 10),
+          type: l.type || "unknown",
+          framework: l.framework || "-",
+        }))
+      : [];
+
+    const recommendations = [];
+    if (byType.element_not_rendered > 0 || byType.element_not_visible > 0) {
+      recommendations.push("Use waits explícitos (waitForSelector, waitForDisplayed) ANTES de interagir com elementos.");
+    }
+    if (byType.timing_fix > 0 || byType.element_stale > 0) {
+      recommendations.push("Aumente timeouts e use re-localização de elementos em listas dinâmicas.");
+    }
+    if (byType.selector_fix > 0 || byType.mobile_mapping_invisible > 0) {
+      recommendations.push("Priorize data-testid, role e seletores estáveis; em mobile, use mapeamento visível no topo do spec.");
+    }
+    if (stats.firstAttemptSuccessRate < 70 && stats.testsGenerated > 0) {
+      recommendations.push("Aplique UNIVERSAL_TEST_PRACTICES em cada teste gerado: waits inteligentes + assert final.");
+    }
+    if (recommendations.length === 0 && learnings.length > 0) {
+      recommendations.push("Continue aplicando as práticas aprendidas em novos testes.");
+    }
+
+    const summary = `📈 **Relatório de Evolução e Aprendizado**
+
+**Resumo por tipo:**
+${Object.entries(byType).filter(([, v]) => v > 0).map(([t, v]) => `- ${t}: ${v}`).join("\n") || "- Nenhum aprendizado por tipo ainda"}
+
+**Métricas gerais:**
+- Total de aprendizados: ${stats.totalLearnings}
+- Taxa de sucesso (1ª tentativa): ${stats.firstAttemptSuccessRate}%
+- Testes gerados: ${stats.testsGenerated}
+
+${format === "full" && recommendations.length > 0 ? `**Recomendações para aprimorar o código:**\n${recommendations.map((r) => `• ${r}`).join("\n")}` : ""}`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        summary: summary.trim(),
+        byType,
+        evolution: format === "full" ? evolution : undefined,
+        recommendations: format === "full" ? recommendations : undefined,
+      },
+    };
+  }
+);
+
+server.registerTool(
   "qa_compare_with_industry",
   {
     title: "Comparar com padrões da indústria",
@@ -2592,6 +2794,7 @@ server.registerTool(
     let testFilePath = null;
     let testContent = null;
     let attempt = 0;
+    let appliedLearningFix = false;
 
     learnings.push({ attempt: 0, action: "detect_project", result: `${structure.testFrameworks.length} framework(s)` });
 
@@ -2599,9 +2802,15 @@ server.registerTool(
       learnings.push({ attempt, action: "generate_tests", result: "gerando..." });
 
       const { provider, apiKey, baseUrl, model } = llm;
-      const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
+      const memoryHints = memory.learnings
+        ?.filter((l) => l.fix)
+        .slice(-10)
+        .map((l) => l.fix)
+        .join("\n") || "";
       const systemPrompt = `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
-${memoryHints ? `\nAprendizados anteriores (use como referência):\n${memoryHints.slice(0, 1000)}` : ""}
+${UNIVERSAL_TEST_PRACTICES}
+
+${memoryHints ? `Aprendizados anteriores (use como referência):\n${memoryHints.slice(0, 1000)}` : ""}
 Retorne SOMENTE o código, sem markdown.`;
 
       const userPrompt = `Contexto:\n${contextLines}\n\nGere teste para: ${request}\nFramework: ${fw}`;
@@ -2665,8 +2874,9 @@ Retorne SOMENTE o código, sem markdown.`;
           saveProjectMemory({
             learnings: [{ type: "test_generated", request, framework: fw, success: true, passedFirstTime: attempt === 1, attempts: attempt, timestamp: new Date().toISOString() }],
           });
+          const learnedAppendix = appliedLearningFix ? `\n\n${formatLearnedMessageForUser({ runOutput: runResult?.output, fixSummary: "Ajustei o código aplicando waits e validação correta.", framework: fw })}` : "";
           return {
-            content: [{ type: "text", text: `✅ Teste passou na tentativa ${attempt}!\n\nArquivo: ${testFilePath}\n\nAprendizados salvos.` }],
+            content: [{ type: "text", text: `✅ Teste passou na tentativa ${attempt}!\n\nArquivo: ${testFilePath}\n\nAprendizados salvos.${learnedAppendix}` }],
             structuredContent: { ok: true, testFilePath, attempts: attempt, finalStatus: "passed", learnings },
           };
         }
@@ -2678,8 +2888,11 @@ Retorne SOMENTE o código, sem markdown.`;
           saveProjectMemory({
             learnings: [{ type: "test_generated", request, framework: fw, success: false, attempts: attempt, timestamp: new Date().toISOString() }],
           });
+          const learnedAppendix = appliedLearningFix
+            ? `\n\n${formatLearnedMessageForUser({ runOutput: runResult.output, framework: fw, fixSummary: "Tentei corrigir. Nas próximas execuções usarei esse aprendizado desde o início." })}`
+            : "";
           return {
-            content: [{ type: "text", text: `❌ Teste falhou após ${attempt} tentativa(s).\n\nÚltimo erro:\n${runResult.output.slice(0, 500)}` }],
+            content: [{ type: "text", text: `❌ Teste falhou após ${attempt} tentativa(s).\n\nÚltimo erro:\n${runResult.output.slice(0, 500)}${learnedAppendix}` }],
             structuredContent: { ok: false, testFilePath, attempts: attempt, finalStatus: "max_retries", learnings },
           };
         }
@@ -2701,16 +2914,21 @@ Retorne SOMENTE o código, sem markdown.`;
         learnings.push({ attempt, action: "apply_fix", result: "correção aplicada" });
 
         if (flakyAnalysis.isLikelyFlaky) {
+          const inferredPattern = inferFailurePattern(runResult.output, fw);
+          const learningType = inferredPattern?.learningType || (flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix");
+          const learningFix = inferredPattern?.lesson || fixedCode.slice(0, 500);
           saveProjectMemory({
             learnings: [{
-              type: flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix",
+              type: learningType,
               request,
               framework: fw,
-              fix: fixedCode.slice(0, 500),
+              fix: learningFix,
+              pattern: inferredPattern?.name,
               success: false,
               timestamp: new Date().toISOString(),
             }],
           });
+          appliedLearningFix = true;
         }
       } catch (err) {
         learnings.push({ attempt, action: "error", result: err.message });
@@ -2721,8 +2939,11 @@ Retorne SOMENTE o código, sem markdown.`;
       }
     }
 
+    const learnedAppendix = appliedLearningFix
+      ? `\n\n${formatLearnedMessageForUser({ fixSummary: "Tentei corrigir. Nas próximas execuções usarei esse aprendizado desde o início." })}`
+      : "";
     return {
-      content: [{ type: "text", text: `❌ Falhou após ${maxRetries} tentativa(s).` }],
+      content: [{ type: "text", text: `❌ Falhou após ${maxRetries} tentativa(s).${learnedAppendix}` }],
       structuredContent: { ok: false, testFilePath, attempts: maxRetries, finalStatus: "max_retries", learnings },
     };
   }

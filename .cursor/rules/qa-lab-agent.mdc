@@ -5,6 +5,14 @@ alwaysApply: true
 
 # QA com mcp-lab-agent
 
+## Persona do agente
+
+Quando usar o qa-lab-agent, assuma o papel de **QA Sênior com 10+ anos de experiência**:
+- Pense em boas práticas: Page Objects, seletores estáveis (data-testid, role), isolamento de testes
+- Considere manutenibilidade, flakiness e cobertura de áreas críticas
+- Sugira trade-offs (ex.: "Appium é robusto para mobile; Detox é mais rápido para React Native")
+- Explique o **porquê** das recomendações, não só o como
+
 ## Quando usar o qa-lab-agent
 
 **Só use as ferramentas do MCP qa-lab-agent quando o usuário mencionar explicitamente:**
@@ -15,23 +23,49 @@ alwaysApply: true
 
 **Se o usuário não mencionar qa-lab-agent**, responda normalmente com o Cursor/agente padrão — não force o uso do MCP.
 
+## Fluxo "crie teste" (interativo)
+
+Quando o usuário disser **"crie teste X"**, **"gera teste para Y"** ou similar:
+
+1. **NÃO chame `generate_tests` imediatamente**
+2. Primeiro, chame `detect_project` para entender o ambiente (web/mobile)
+3. Responda ao usuário com escolhas:
+
+   > Para criar esse teste, preciso de algumas definições:
+   >
+   > **Framework:** WDIO, Playwright, Cypress, Selenium, Appium, Detox, Robot Framework, pytest, Jest, Vitest
+   > **Plataforma:** Web ou Mobile?
+   >
+   > Se for **mobile**, posso mapear os elementos da tela antes (use `map_mobile_elements` ou forneça um deep link) e depois criar a estrutura de testes.
+
+4. **Aguarde a resposta** do usuário com as escolhas
+5. **Só então** chame `generate_tests` + `write_test` com os parâmetros escolhidos
+6. Se for mobile e o usuário tiver deep link ou elementos mapeados, use esse contexto em `generate_tests`
+
+## Detecção de ambiente
+
+- Se `detect_project` retornar `environment: "mobile"` ou `hasMobile: true` → sugira frameworks mobile (Appium, Detox)
+- Se o usuário mencionar deep link (ex.: `meuapp://tela`) → ambiente mobile
+- Se URL http/https → ambiente web
+
 ## Ferramentas (quando ativado)
 
 - Listar arquivos de teste → `list_test_files`
 - Executar testes → `run_tests`
-- Detectar estrutura → `detect_project`
+- Detectar estrutura + ambiente → `detect_project` (inclui environment, hasMobile, hints)
 - Gerar testes → `generate_tests` + `write_test`
+- Mapear elementos mobile → `map_mobile_elements` (para mobile: appPackage, deepLink, etc.)
 - Analisar falhas → `analyze_failures` + `suggest_fix` ou `por_que_falhou`
 - Seletor quebrado → `suggest_selector_fix`
 - Bug report → `create_bug_report`
 - Métricas de QA → `get_business_metrics`
 - Cobertura → `get_test_coverage`
-- Analisar métodos de arquivo → `analyze_file_methods` (varredura em cada método: correto?, melhor forma?, falso positivo?, coerente?, itens/params/imports faltando?)
+- Analisar métodos de arquivo → `analyze_file_methods`
 
 ## Fluxos compostos (quando QA pedir "relatório", "métricas", "fluxo completo")
 
 Quando o usuário pedir um fluxo completo, execute em sequência:
-1. `detect_project` — entender o projeto
+1. `detect_project` — entender o projeto e ambiente
 2. `run_tests` — executar testes
 3. Se houve falha: `analyze_failures` + `create_bug_report`
 4. `get_test_coverage` — cobertura (Jest/Vitest)
@@ -39,10 +73,29 @@ Quando o usuário pedir um fluxo completo, execute em sequência:
 
 Ver **CHECKLIST_QA_AGENT.md** para lista completa de comandos que um QA jr pode pedir.
 
+## Quando o usuário reportar "elemento invisível", "não renderizado" ou erros de interação
+
+O "elemento invisível" pode ter várias causas: não renderizado, não visível, timing, seletor incorreto, stale element, etc. O agente trata cada cenário de forma adaptada:
+
+1. **Não assuma só mapeamento:** Pode ser elemento ainda não no DOM, display:none, carregamento assíncrono, timeout ou seletor incorreto.
+2. **Soluções aplicadas pelo agente:**
+   - **element_not_rendered:** waits antes de interagir (waitForSelector, should('exist'))
+   - **element_not_visible:** verificação de visibilidade (waitForDisplayed, should('be.visible'))
+   - **element_stale:** re-localizar elemento antes de cada ação
+   - **mobile_mapping_invisible:** mapeamento visível no topo do spec
+   - **selector / timing:** seletores estáveis, waits explícitos
+3. **Práticas obrigatórias em todo teste gerado (UNIVERSAL_TEST_PRACTICES):**
+   - Esperas inteligentes antes de interagir
+   - Assert/expect ao final para o usuário ver que houve validação
+   - Nunca presumir que o elemento está pronto
+4. **Mensagens adaptadas:** Cada erro gera mensagem "Entendi o erro, apliquei a correção, aprendi" com texto específico ao tipo detectado.
+5. **Relatório de evolução:** Use `get_learning_report` (ou `mcp-lab-agent report --full`) para ver resumo por tipo, evolução no tempo e recomendações para aprimorar o código.
+
 ## Resumo
 
 | Usuário diz | O que fazer |
 |-------------|-------------|
 | "Liste os testes **com o qa-lab-agent**" | Usar MCP |
+| "Crie teste para login **com o qa-lab-agent**" | Perguntar framework + plataforma, depois generate_tests |
 | "Execute os testes e me dê relatório **com o qa-lab-agent**" | run_tests → create_bug_report (se falhar) → get_test_coverage |
 | "Liste os testes" | Comportamento normal (Cursor/agente padrão) |

@@ -141,6 +141,27 @@ var FLAKY_PATTERNS = [
   { name: "network", regex: /ECONNREFUSED|network|fetch|axios|request failed|404|500/i, suggestion: "Mocke APIs ou garanta que o backend esteja rodando. Use retry ou intercept." },
   { name: "shared_state", regex: /state|cleanup|beforeEach|afterEach|isolation/i, suggestion: "Garanta beforeEach/afterEach para resetar estado. Evite vari\xE1veis globais compartilhadas." }
 ];
+function detectMobileMappingInvisible(runOutput, framework = "") {
+  const isMobile = /appium|detox/i.test(framework);
+  const hasSelectorError = /element not found|selector|locator|Unable to find|no such element|stale element/i.test(runOutput);
+  return isMobile && hasSelectorError;
+}
+var MOBILE_MAPPING_LESSON = `Em testes mobile (Appium/Detox), SEMPRE inclua o mapeamento de elementos de forma VIS\xCDVEL e estruturada no c\xF3digo:
+- Use constantes ou Page Object no TOPO do spec: const ELEMENTS = { loginBtn: '~btn_login', ... };
+- No teste: $(ELEMENTS.loginBtn).click();
+- Nunca deixe seletores "invis\xEDveis" (hardcoded inline repetidos). Isso dificulta manuten\xE7\xE3o e causa falhas.`;
+function formatLearnedMessageForUser({ type, fixSummary, framework }) {
+  const base = `**Entendi o erro e apliquei a corre\xE7\xE3o**
+
+**O que aconteceu:** O mapeamento de elementos ficou invis\xEDvel \u2014 os seletores n\xE3o foram estruturados de forma expl\xEDcita no teste, o que dificultou a manuten\xE7\xE3o e causou falhas.
+
+**O que fiz:** ${fixSummary || "Ajustei o c\xF3digo para usar mapeamento vis\xEDvel (constantes/Page Object no topo do spec)."}
+
+**O que aprendi:** Salvei esse cen\xE1rio no meu hist\xF3rico. Nas pr\xF3ximas gera\xE7\xF5es de testes mobile, vou sempre incluir o mapeamento de forma vis\xEDvel e organizada, para que isso n\xE3o se repita.
+
+Use \`mcp-lab-agent stats\` para ver a evolu\xE7\xE3o dos aprendizados.`;
+  return base;
+}
 function detectFlakyPatterns(runOutput) {
   const detected = [];
   for (const p of FLAKY_PATTERNS) {
@@ -212,6 +233,9 @@ function detectProjectStructure() {
     if (deps.detox) {
       structure.testFrameworks.push("detox");
       structure.hasTests = true;
+      structure.hasMobile = true;
+    }
+    if (deps["react-native"]) {
       structure.hasMobile = true;
     }
     if (deps.supertest) {
@@ -370,6 +394,22 @@ function detectProjectStructure() {
       }
     }
   }
+  const hints = [];
+  if (structure.hasMobile) hints.push("mobile");
+  if (structure.testFrameworks.includes("appium")) hints.push("appium");
+  if (structure.testFrameworks.includes("detox")) hints.push("detox");
+  const pkg = structure.packageJson || {};
+  const allDeps = { ...pkg.dependencies || {}, ...pkg.devDependencies || {} };
+  if (allDeps["react-native"]) hints.push("react-native");
+  const webFrameworks = ["cypress", "playwright", "webdriverio", "selenium", "puppeteer", "testcafe"];
+  const hasWebFrameworks = structure.testFrameworks.some((f) => webFrameworks.includes(f));
+  if (hasWebFrameworks) hints.push("web");
+  if (structure.testDirs.includes("mobile")) hints.push("mobile-dir");
+  let environment = "web";
+  if (structure.hasMobile && !hasWebFrameworks) environment = "mobile";
+  else if (structure.hasMobile && hasWebFrameworks) environment = "both";
+  structure.environment = environment;
+  structure.environmentHints = [...new Set(hints)];
   return structure;
 }
 var UNIVERSAL_TEST_PATTERNS = [
@@ -983,7 +1023,7 @@ server.registerTool(
   "detect_project",
   {
     title: "Detectar estrutura do projeto",
-    description: "Analisa o projeto e identifica frameworks de teste, pastas, backend, frontend.",
+    description: "Analisa o projeto e identifica frameworks de teste, pastas, backend, frontend, ambiente (web/mobile) e hints para gera\xE7\xE3o de testes.",
     inputSchema: z.object({}),
     outputSchema: z.object({
       ok: z.boolean(),
@@ -994,17 +1034,22 @@ server.registerTool(
         hasBackend: z.boolean(),
         backendDir: z.string().nullable(),
         hasFrontend: z.boolean(),
-        frontendDir: z.string().nullable()
+        frontendDir: z.string().nullable(),
+        hasMobile: z.boolean().optional(),
+        environment: z.string().optional(),
+        environmentHints: z.array(z.string()).optional()
       })
     })
   },
   async () => {
     const structure = detectProjectStructure();
+    const envLine = structure.environment ? `Ambiente: ${structure.environment}${structure.environmentHints?.length ? ` (${structure.environmentHints.join(", ")})` : ""}` : "";
     const summary = [
       `Frameworks de teste: ${structure.testFrameworks.join(", ") || "nenhum"}`,
       `Pastas de teste: ${structure.testDirs.join(", ") || "nenhuma"}`,
       `Backend: ${structure.backendDir || "n\xE3o detectado"}`,
-      `Frontend: ${structure.frontendDir || "n\xE3o detectado"}`
+      `Frontend: ${structure.frontendDir || "n\xE3o detectado"}`,
+      ...envLine ? [envLine] : []
     ].join("\n");
     return {
       content: [{ type: "text", text: summary }],
@@ -1104,7 +1149,7 @@ var QA_AGENTS2 = {
   intelligence: { tools: ["qa_full_analysis", "qa_health_check", "qa_suggest_next_test", "qa_predict_flaky", "qa_compare_with_industry"], desc: "Executor + Consultor: an\xE1lise completa, diagn\xF3stico, sugest\xF5es e predi\xE7\xF5es" },
   detection: { tools: ["detect_project", "read_project", "list_test_files"], desc: "Detec\xE7\xE3o de estrutura, frameworks e arquivos" },
   execution: { tools: ["run_tests", "watch_tests", "get_test_coverage"], desc: "Execu\xE7\xE3o de testes e cobertura" },
-  generation: { tools: ["generate_tests", "write_test", "create_test_template"], desc: "Gera\xE7\xE3o de testes com LLM" },
+  generation: { tools: ["generate_tests", "write_test", "create_test_template", "map_mobile_elements"], desc: "Gera\xE7\xE3o de testes com LLM" },
   analysis: { tools: ["analyze_failures", "por_que_falhou", "suggest_fix", "suggest_selector_fix"], desc: "An\xE1lise de falhas e sugest\xF5es" },
   browser: { tools: ["web_eval_browser"], desc: "Avalia\xE7\xE3o em browser real (screenshots, network, console)" },
   reporting: { tools: ["create_bug_report", "get_business_metrics"], desc: "Relat\xF3rios e m\xE9tricas" },
@@ -1140,8 +1185,17 @@ server.registerTool(
     if (/rodar|executar|run|test|coverage|watch/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: execution \u2192 run_tests, get_test_coverage" }], structuredContent: { ok: true, suggestedAgent: "execution", suggestedTools: QA_AGENTS2.execution.tools, description: QA_AGENTS2.execution.desc } };
     }
+    if (/mapear|elementos mobile|deep link|deeplink|app package|bundle.?id|appium inspector/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: generation \u2192 map_mobile_elements (mapear elementos), depois generate_tests + write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: ["map_mobile_elements", "generate_tests", "write_test"], description: QA_AGENTS2.generation.desc } };
+    }
+    if (/mapear|elementos mobile|deep link|deeplink|app package|bundle.?id/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: generation \u2192 map_mobile_elements (mapear elementos), depois generate_tests + write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: ["map_mobile_elements", "generate_tests", "write_test"], description: "Mapeamento de elementos mobile + gera\xE7\xE3o de testes" } };
+    }
+    if (/mobile|deeplink|deep link|elementos|mapear.*app|appium|detox/i.test(t) && !/rodar|run|executar/i.test(t)) {
+      return { content: [{ type: "text", text: "Agente: generation \u2192 map_mobile_elements, generate_tests, write_test (mobile)" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS2.generation.tools, description: QA_AGENTS2.generation.desc } };
+    }
     if (/gerar|criar|escrever|generate|write|template/i.test(t)) {
-      return { content: [{ type: "text", text: "Agente: generation \u2192 generate_tests, write_test" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS2.generation.tools, description: QA_AGENTS2.generation.desc } };
+      return { content: [{ type: "text", text: "Agente: generation \u2192 generate_tests, write_test, map_mobile_elements" }], structuredContent: { ok: true, suggestedAgent: "generation", suggestedTools: QA_AGENTS2.generation.tools, description: QA_AGENTS2.generation.desc } };
     }
     if (/analisar|por que|falhou|suggest|correção|selector|fix/i.test(t)) {
       return { content: [{ type: "text", text: "Agente: analysis \u2192 analyze_failures, por_que_falhou, suggest_fix" }], structuredContent: { ok: true, suggestedAgent: "analysis", suggestedTools: QA_AGENTS2.analysis.tools, description: QA_AGENTS2.analysis.desc } };
@@ -1465,7 +1519,9 @@ O c\xF3digo de refer\xEAncia pode estar em QUALQUER framework (Cypress, Robot, P
 - Mantenha a MESMA l\xF3gica e fluxo de teste
 - Traduza seletores, comandos e asser\xE7\xF5es para ${fw}
 - Use Page Objects se o projeto j\xE1 usa
-- Retorne SOMENTE o c\xF3digo, sem markdown` : `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
+- Retorne SOMENTE o c\xF3digo, sem markdown${fw === "appium" || fw === "detox" ? `
+
+IMPORTANTE: ${MOBILE_MAPPING_LESSON}` : ""}` : `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
 Framework: ${fw}
 Regras:
 - Cypress: cy.request(), cy.visit(), cy.get()
@@ -1474,7 +1530,9 @@ Regras:
 - Jest/Vitest: describe(), test(), expect()
 - Robot: Keywords, [Tags], Steps
 - pytest: def test_*, assert, fixtures
-- C\xF3digo limpo. Retorne SOMENTE o c\xF3digo, sem markdown`;
+- C\xF3digo limpo. Retorne SOMENTE o c\xF3digo, sem markdown${fw === "appium" || fw === "detox" ? `
+
+IMPORTANTE (Appium/Detox): ${MOBILE_MAPPING_LESSON}` : ""}`;
     const userPrompt = `Contexto do projeto:
 ${contextWithMemory.slice(0, 5e3)}
 
@@ -2041,6 +2099,114 @@ ${data.codigoCorrigido}
         structuredContent: { ok: false, error: err.message }
       };
     }
+  }
+);
+server.registerTool(
+  "map_mobile_elements",
+  {
+    title: "Mapear elementos mobile (estrutura para testes)",
+    description: "Gera estrutura/template de elementos para testes mobile. Aceita deep link, appPackage/appActivity (Android) ou bundleId (iOS). Retorna instru\xE7\xF5es para mapear elementos (Appium Inspector, uiautomator) e template para usar em generate_tests. Se elementsJsonPath fornecido, l\xEA arquivo e formata para contexto.",
+    inputSchema: z.object({
+      deepLink: z.string().optional().describe("Deep link do app (ex: meuapp://login). Indica ambiente mobile."),
+      appPackage: z.string().optional().describe("Android: package do app (ex: com.example.app)."),
+      appActivity: z.string().optional().describe("Android: activity principal (ex: .MainActivity)."),
+      bundleId: z.string().optional().describe("iOS: bundle identifier do app."),
+      elementsJsonPath: z.string().optional().describe("Caminho para arquivo JSON com elementos mapeados (id, text, accessibilityId, xpath).")
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      environment: z.string().optional(),
+      elements: z.array(z.object({
+        id: z.string().optional(),
+        text: z.string().optional(),
+        accessibilityId: z.string().optional(),
+        xpath: z.string().optional(),
+        resourceId: z.string().optional(),
+        className: z.string().optional()
+      })).optional(),
+      instructions: z.string().optional(),
+      contextForGenerate: z.string().optional().describe("Texto formatado para passar em generate_tests como contexto."),
+      error: z.string().optional()
+    })
+  },
+  async ({ deepLink, appPackage, appActivity, bundleId, elementsJsonPath }) => {
+    const hasMobileContext = deepLink || appPackage || bundleId;
+    const elements = [];
+    let instructions = "";
+    let contextForGenerate = "";
+    if (elementsJsonPath) {
+      const fullPath = path5.join(PROJECT_ROOT5, elementsJsonPath.replace(/^\//, "").replace(/\\/g, "/"));
+      if (fs5.existsSync(fullPath)) {
+        try {
+          const raw = fs5.readFileSync(fullPath, "utf8");
+          const parsed = JSON.parse(raw);
+          const arr = Array.isArray(parsed) ? parsed : parsed.elements || parsed.items || [];
+          arr.forEach((el) => {
+            elements.push({
+              id: el.id || el.resourceId,
+              text: el.text || el.label,
+              accessibilityId: el.accessibilityId || el["content-desc"] || el.contentDesc,
+              xpath: el.xpath,
+              resourceId: el.resourceId || el.id,
+              className: el.className || el.class
+            });
+          });
+          contextForGenerate = `
+Elementos mapeados da tela (use para seletores est\xE1veis em Appium/WDIO):
+${JSON.stringify(elements, null, 2)}
+`;
+        } catch (err) {
+          return {
+            content: [{ type: "text", text: `Erro ao ler ${elementsJsonPath}: ${err.message}` }],
+            structuredContent: { ok: false, error: err.message }
+          };
+        }
+      } else {
+        return {
+          content: [{ type: "text", text: `Arquivo n\xE3o encontrado: ${elementsJsonPath}` }],
+          structuredContent: { ok: false, error: "File not found" }
+        };
+      }
+    }
+    if (hasMobileContext || elementsJsonPath) {
+      instructions = [
+        "## Como mapear elementos do app mobile",
+        "",
+        "**Android (Appium):**",
+        "- Use Appium Inspector (appium.io) com appPackage/appActivity",
+        "- Ou: `adb shell uiautomator dump` \u2192 analise o XML exportado",
+        "- Priorize: accessibility-id > resource-id > xpath relativo",
+        "",
+        "**iOS (Appium):**",
+        "- Appium Inspector com bundleId",
+        "- Xcode Accessibility Inspector",
+        "- Priorize: accessibility-id > name",
+        "",
+        "**Formato esperado (elements.json):**",
+        "```json",
+        '[{"accessibilityId": "login_btn", "text": "Entrar", "resourceId": "com.app:id/btn"}]',
+        "```",
+        "",
+        "Salve em um arquivo e passe em `elementsJsonPath` na pr\xF3xima chamada."
+      ].join("\n");
+    }
+    const env = deepLink ? "mobile" : appPackage || bundleId ? "mobile" : elements.length ? "mobile" : "unknown";
+    const text = [
+      contextForGenerate && `## Contexto para generate_tests
+${contextForGenerate}`,
+      instructions && `## Instru\xE7\xF5es
+${instructions}`
+    ].filter(Boolean).join("\n\n");
+    return {
+      content: [{ type: "text", text: text || (hasMobileContext ? `Ambiente: ${env}. ${instructions}` : "Informe deepLink, appPackage ou elementsJsonPath.") }],
+      structuredContent: {
+        ok: true,
+        environment: env,
+        elements: elements.length ? elements : void 0,
+        instructions: instructions || void 0,
+        contextForGenerate: contextForGenerate || void 0
+      }
+    };
   }
 );
 server.registerTool(
@@ -3303,11 +3469,12 @@ server.registerTool(
     let testFilePath = null;
     let testContent = null;
     let attempt = 0;
+    let appliedMobileMappingFix = false;
     learnings.push({ attempt: 0, action: "detect_project", result: `${structure.testFrameworks.length} framework(s)` });
     for (attempt = 1; attempt <= maxRetries; attempt++) {
       learnings.push({ attempt, action: "generate_tests", result: "gerando..." });
       const { provider, apiKey, baseUrl, model } = llm;
-      const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
+      const memoryHints = memory.learnings?.filter((l) => l.success || l.type === "mobile_mapping_invisible").slice(-10).map((l) => l.fix).join("\n") || "";
       const systemPrompt = `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
 ${memoryHints ? `
 Aprendizados anteriores (use como refer\xEAncia):
@@ -3378,12 +3545,15 @@ Framework: ${fw}`;
           saveProjectMemory({
             learnings: [{ type: "test_generated", request, framework: fw, success: true, passedFirstTime: attempt === 1, attempts: attempt, timestamp: (/* @__PURE__ */ new Date()).toISOString() }]
           });
+          const learnedAppendix2 = appliedMobileMappingFix ? `
+
+${formatLearnedMessageForUser({ fixSummary: "Ajustei o mapeamento para ficar vis\xEDvel no c\xF3digo." })}` : "";
           return {
             content: [{ type: "text", text: `\u2705 Teste passou na tentativa ${attempt}!
 
 Arquivo: ${testFilePath}
 
-Aprendizados salvos.` }],
+Aprendizados salvos.${learnedAppendix2}` }],
             structuredContent: { ok: true, testFilePath, attempts: attempt, finalStatus: "passed", learnings }
           };
         }
@@ -3393,11 +3563,14 @@ Aprendizados salvos.` }],
           saveProjectMemory({
             learnings: [{ type: "test_generated", request, framework: fw, success: false, attempts: attempt, timestamp: (/* @__PURE__ */ new Date()).toISOString() }]
           });
+          const learnedAppendix2 = appliedMobileMappingFix ? `
+
+${formatLearnedMessageForUser({ fixSummary: "Tentei corrigir o mapeamento para ficar vis\xEDvel. Nas pr\xF3ximas execu\xE7\xF5es, usarei esse aprendizado desde o in\xEDcio." })}` : "";
           return {
             content: [{ type: "text", text: `\u274C Teste falhou ap\xF3s ${attempt} tentativa(s).
 
 \xDAltimo erro:
-${runResult.output.slice(0, 500)}` }],
+${runResult.output.slice(0, 500)}${learnedAppendix2}` }],
             structuredContent: { ok: false, testFilePath, attempts: attempt, finalStatus: "max_retries", learnings }
           };
         }
@@ -3415,16 +3588,20 @@ ${runResult.output.slice(0, 500)}` }],
         fs5.writeFileSync(testFilePath, testContent, "utf8");
         learnings.push({ attempt, action: "apply_fix", result: "corre\xE7\xE3o aplicada" });
         if (flakyAnalysis.isLikelyFlaky) {
+          const isMobileMapping = detectMobileMappingInvisible(runResult.output, fw);
+          const learningType = isMobileMapping ? "mobile_mapping_invisible" : flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix";
+          const learningFix = isMobileMapping ? MOBILE_MAPPING_LESSON : fixedCode.slice(0, 500);
           saveProjectMemory({
             learnings: [{
-              type: flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix",
+              type: learningType,
               request,
               framework: fw,
-              fix: fixedCode.slice(0, 500),
+              fix: learningFix,
               success: false,
               timestamp: (/* @__PURE__ */ new Date()).toISOString()
             }]
           });
+          if (isMobileMapping) appliedMobileMappingFix = true;
         }
       } catch (err) {
         learnings.push({ attempt, action: "error", result: err.message });
@@ -3434,8 +3611,11 @@ ${runResult.output.slice(0, 500)}` }],
         };
       }
     }
+    const learnedAppendix = appliedMobileMappingFix ? `
+
+${formatLearnedMessageForUser({ fixSummary: "Tentei corrigir o mapeamento para ficar vis\xEDvel. Nas pr\xF3ximas execu\xE7\xF5es, usarei esse aprendizado desde o in\xEDcio." })}` : "";
     return {
-      content: [{ type: "text", text: `\u274C Falhou ap\xF3s ${maxRetries} tentativa(s).` }],
+      content: [{ type: "text", text: `\u274C Falhou ap\xF3s ${maxRetries} tentativa(s).${learnedAppendix}` }],
       structuredContent: { ok: false, testFilePath, attempts: maxRetries, finalStatus: "max_retries", learnings }
     };
   }

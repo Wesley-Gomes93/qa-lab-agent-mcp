@@ -65,6 +65,9 @@ export function detectProjectStructure() {
       structure.hasTests = true;
       structure.hasMobile = true;
     }
+    if (deps["react-native"]) {
+      structure.hasMobile = true;
+    }
 
     if (deps.supertest) {
       structure.testFrameworks.push("supertest");
@@ -216,6 +219,28 @@ export function detectProjectStructure() {
       }
     }
   }
+
+  // Ambiente inferido (web/mobile) e hints para guiar geração de testes
+  const hints = [];
+  if (structure.hasMobile) hints.push("mobile");
+  if (structure.testFrameworks.includes("appium")) hints.push("appium");
+  if (structure.testFrameworks.includes("detox")) hints.push("detox");
+  const pkg = structure.packageJson || {};
+  const allDeps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+  if (allDeps["react-native"]) hints.push("react-native");
+
+  const webFrameworks = ["cypress", "playwright", "webdriverio", "selenium", "puppeteer", "testcafe"];
+  const hasWebFrameworks = structure.testFrameworks.some((f) => webFrameworks.includes(f));
+  if (hasWebFrameworks) hints.push("web");
+
+  if (structure.testDirs.includes("mobile")) hints.push("mobile-dir");
+
+  let environment = "web";
+  if (structure.hasMobile && !hasWebFrameworks) environment = "mobile";
+  else if (structure.hasMobile && hasWebFrameworks) environment = "both";
+
+  structure.environment = environment;
+  structure.environmentHints = [...new Set(hints)];
 
   return structure;
 }

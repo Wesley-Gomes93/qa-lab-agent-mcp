@@ -44,12 +44,18 @@ export function saveProjectMemory(updates) {
   } catch {}
 }
 
+const LEARNING_TYPES = ["selector_fix", "timing_fix", "element_not_rendered", "element_not_visible", "element_stale", "mobile_mapping_invisible"];
+
 export function getMemoryStats() {
   const memory = loadProjectMemory();
   const learnings = memory.learnings || [];
   const successfulFixes = learnings.filter((l) => l.success);
   const selectorFixes = learnings.filter((l) => l.type === "selector_fix");
   const timingFixes = learnings.filter((l) => l.type === "timing_fix");
+  const byLearningType = {};
+  for (const t of LEARNING_TYPES) {
+    byLearningType[t] = learnings.filter((l) => l.type === t).length;
+  }
   const totalTests = learnings.filter((l) => l.type === "test_generated").length;
   const firstAttemptSuccess = learnings.filter((l) => l.type === "test_generated" && l.passedFirstTime).length;
 
@@ -58,6 +64,7 @@ export function getMemoryStats() {
     successfulFixes: successfulFixes.length,
     selectorFixes: selectorFixes.length,
     timingFixes: timingFixes.length,
+    byLearningType,
     testsGenerated: totalTests,
     firstAttemptSuccessRate: totalTests > 0 ? Math.round((firstAttemptSuccess / totalTests) * 100) : 0,
   };
