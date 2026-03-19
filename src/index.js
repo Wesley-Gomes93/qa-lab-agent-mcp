@@ -734,8 +734,19 @@ Framework alvo: ${fw}${referenceBlock}`;
       specContent = specContent.replace(/^```(?:js|javascript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
       const fileName = request.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 40);
 
+      if (!specContent) {
+        return {
+          content: [{ type: "text", text: "Erro: LLM retornou conteúdo vazio. Verifique API key (GROQ_API_KEY, GEMINI_API_KEY) e tente novamente." }],
+          structuredContent: { ok: false, error: "Empty LLM response" },
+        };
+      }
+
+      // Incluir specContent no text para que o agente IDE tenha acesso ao código
+      // mesmo quando structuredContent não é exposto pelo cliente MCP
+      const textWithCode = `Spec gerado (${specContent.length} chars). Use write_test para gravar com name="${fileName}" e content abaixo:\n\n--- Código (passe em content para write_test) ---\n${specContent}`;
+
       return {
-        content: [{ type: "text", text: `Spec gerado (${specContent.length} chars). Use write_test para gravar.` }],
+        content: [{ type: "text", text: textWithCode }],
         structuredContent: {
           ok: true,
           specContent,
@@ -809,6 +820,13 @@ server.registerTool(
       return {
         content: [{ type: "text", text: "Nenhum framework de teste detectado." }],
         structuredContent: { ok: false, error: "No test framework" },
+      };
+    }
+
+    if (!content || !String(content).trim()) {
+      return {
+        content: [{ type: "text", text: "Erro: content não pode ser vazio. Chame generate_tests primeiro e passe o specContent retornado em content." }],
+        structuredContent: { ok: false, error: "Empty content" },
       };
     }
 

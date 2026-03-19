@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.11] - 2026-03-19
+
+### Fix: generate_tests + write_test — arquivos vazios / "No tests found"
+
+- **generate_tests** — Inclui `specContent` no texto retornado (`content`) para que o agente IDE tenha acesso ao código mesmo quando `structuredContent` não é exposto pelo cliente MCP
+- **generate_tests** — Valida resposta vazia do LLM e retorna erro claro se API key não configurada ou resposta vazia
+- **write_test** — Rejeita `content` vazio com mensagem orientando a chamar `generate_tests` primeiro
+- **docs/BUG_REPORT_GENERATE_WRITE_TESTS.md** — Bug report detalhado para referência
+
 ## [2.1.9] - 2026-03-19
 
 ### run_tests: device e auto-fix de seletor

@@ -4,77 +4,127 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Assistente de teste que aprende com falhas.** Reduz tempo de debug, elimina flaky e mantém seletores estáveis. Executa testes, analisa causas de falha, corrige automaticamente e aprende padrões que melhoram as próximas gerações. Integra ao Cursor, Cline, Windsurf ou Slack.
+**PT-BR** | [English](#english)
+
+---
+
+## Português (PT-BR)
+
+**Sistema de QA autônomo com IA.** Reduz tempo de debug de testes, elimina flaky e mantém seletores estáveis — com um sistema de aprendizado que melhora a cada correção.
+
+> **TL;DR para recrutadores:** QA autônomo que explica *por que* os testes falharam em linguagem clara e aplica correções automaticamente. Testes que se autocorrigem e aprendem a cada fix. Integra com IDE (Cursor) e Slack. Feito para QA Engineers, SDETs e roles de Automação/IA.
+
+### Por que isso importa
+
+| Problema real | Impacto no mercado | O que o mcp-lab-agent faz |
+|---------------|--------------------|---------------------------|
+| **Testes flaky** | Times gastam 5–10h/semana. Microsoft: ~25% das falhas em CI são flaky; Slack tinha 56% antes de remediar. | Detecta padrões flaky, sugere correções, retry automático com fixes |
+| **"Por que falhou?"** | QAs e devs perdem horas lendo stack traces e logs. "Teste falhou" genérico não ajuda. | **Causa + correção em 30 segundos.** Diagnóstico em linguagem clara: o que aconteceu, por que e como corrigir |
+| **Seletores quebrados** | Refactors de UI quebram testes. Seletores frágeis (classes CSS, XPath longo) exigem manutenção manual. | Auto-fix de seletores, sugere `data-testid`, aplica correções e tenta de novo |
+
+### O WOW: Testes que se autocorrigem e aprendem
+
+**Quando um teste falha, você recebe a causa e a correção em 30 segundos. Sem cavar em stack traces.**
+
+Cada correção bem-sucedida é salva e reutilizada. Na próxima falha similar, o agente aplica o padrão aprendido automaticamente. **A taxa de sucesso na primeira tentativa melhora ao longo do tempo** — mensurável via `mcp-lab-agent stats`.
 
 ```bash
 npx mcp-lab-agent auto "login flow" --max-retries 5
 ```
 
-**1 comando. Análise completa.**
+*Um comando. Análise completa. Autocorreção. Aprendizado.*
 
-> Teste falhou? Em 30 segundos: o que aconteceu, por que e como corrigir. O mcp-lab-agent analisa causas, corrige e acumula conhecimento.
+### Principais resultados
 
-**Foco:** [Top 3 problemas de QA](docs/TOP3_QA_PROBLEMAS_E_ROADMAP.md) — flaky, "por que falhou?", manutenção de seletores.
+- **Reduz tempo de debug** — "Por que falhou?" em linguagem clara, não stack traces
+- **Corta manutenção de flaky** — Detecção, diagnóstico e sugestões de correção
+- **Escala QA sem escalar headcount** — Agente no IDE + Slack bot; funciona com Cypress, Playwright, Appium, Jest e 11+ frameworks
+- **Pronto para enterprise** — Socket Mode (sem URL pública), Ollama (offline), Learning Hub para times
 
----
+### Como funciona
 
-## Destaques
+**🤖 Agente no IDE (Cursor, Cline, Windsurf)** — Pergunte no chat: *"Gere teste para login"*, *"Por que o teste falhou?"*, *"Roda o teste X"*. O agente detecta o projeto, executa testes, analisa falhas, aplica correções e aprende.
 
-### 🤖 Agente MCP (Cursor, Cline, Windsurf)
+**💬 Slack Bot** — Mencione o bot em qualquer canal — ele executa testes e posta o relatório. Funciona em ambiente corporativo (Socket Mode, sem ngrok). QA no fluxo da conversa.
 
-| Função | Descrição |
-|--------|-----------|
-| **Detecção automática** | Identifica frameworks (Cypress, Playwright, Jest, Appium, Detox, Robot, pytest) e estrutura do projeto |
-| **Geração de testes** | Cria casos de teste com LLM + memória de aprendizados anteriores |
-| **Execução** | Roda testes (E2E, unit, mobile, API) com device config e auto-fix de seletores |
-| **"Por que falhou?"** | Diagnóstico em 1 frase: causa, solução e sugestão de correção |
-| **Análise de falhas** | Classifica timing, selector, element_not_visible, flaky — sugere fix aplicável |
-| **Learning system** | Cada correção bem-sucedida melhora as próximas gerações de testes |
-| **Relatórios** | Bug reports, métricas, coverage, `flaky-report`, evolução de aprendizado |
-
-*Use no chat: "Gere teste para login", "Por que o teste falhou?", "Roda o teste X"*
-
-### 💬 Slack Bot
-
-| Função | Descrição |
-|--------|-----------|
-| **QA via @mention** | Mencione o bot em qualquer canal — executa testes e posta relatório |
-| **Socket Mode** | Funciona em ambiente corporativo, sem URL pública (sem ngrok) |
-| **Integração total** | Usa o mesmo agente: detecta projeto, roda testes, analisa falhas |
-| **Zero config no Slack** | Configure `botToken` e `appToken` em `~/.cursor/mcp.json` uma vez |
-
-*Ideal para times que querem QA no fluxo do Slack — "Roda os testes do checkout" em um @mention.*
-
----
-
-## O que é
-
-O **mcp-lab-agent** é um sistema de inteligência em qualidade de software — não uma ferramenta de teste isolada. Ele entende o seu projeto, identifica frameworks (Cypress, Playwright, Jest, Appium, Robot, pytest e outros), gera testes com base em contexto e memória, executa, analisa falhas e aplica correções automaticamente. O valor central está no **learning**: cada correção bem-sucedida é salva e usada nas próximas gerações, aumentando a taxa de sucesso na primeira tentativa.
-
-Com o **Learning Hub**, os aprendizados são centralizados e agregados entre projetos e — em deploy compartilhado — entre times e empresas, formando uma base de conhecimento em qualidade que escala além do repositório.
-
----
-
-## Para quem
+### Para quem é
 
 | Perfil | Benefício |
 |--------|-----------|
-| **QAs e SDETs** | Geração assistida de testes, análise de falhas com sugestões de correção, detecção de flakiness |
-| **Desenvolvedores** | "Por que falhou?", análise de arquivos e métodos, integração direta no IDE |
+| **QAs e SDETs** | Geração assistida de testes, análise de falhas com sugestões de correção, detecção de flaky |
+| **Desenvolvedores** | "Por que falhou?" em segundos, análise de arquivos/métodos, integração direta no IDE |
 | **Tech leads** | Visão de risco por área, métricas de estabilidade, relatórios para decisão |
-| **Empresas** | Learning Hub centralizado, escala entre squads e organizações, CI/CD, Ollama (offline), Slack para QA via chat |
+| **Times** | Learning Hub, Slack bot para QA no chat, CI/CD, Ollama (offline) |
 
----
-
-## Comparação
+### Como é diferente
 
 | Outras ferramentas | mcp-lab-agent |
 |--------------------|---------------|
-| Só executam testes | Executa, analisa causa da falha e sugere correção |
-| Saída genérica "teste falhou" | Diagnóstico: "login falha 30% das vezes (timing)" |
-| Sem visão de risco | Identifica áreas sem testes e classifica risco (alto/médio/baixo) |
-| Sem memória entre execuções | Learning system: cada padrão de falha vira correção aplicada nas próximas gerações |
-| Uma ferramenta por tarefa | Sistema de inteligência: geração, execução, análise, relatórios, predição, learning |
+| Só executam testes | Executa, analisa causa, sugere fix, aplica correção |
+| "Teste falhou" genérico | Linguagem clara: "Login falha 30% das vezes (timing). Adicione waitForDisplayed." |
+| Sem memória entre execuções | Learning system: cada fix melhora as próximas gerações |
+| Uma ferramenta por tarefa | End-to-end: gera, executa, analisa, reporta, aprende |
+
+---
+
+<a name="english"></a>
+
+## English
+
+**AI-powered autonomous QA system.** Reduces test debugging time, eliminates flaky tests, and keeps selectors stable — with a learning system that gets smarter with every fix.
+
+> **TL;DR for recruiters:** Autonomous QA that explains *why* tests fail in plain language and applies fixes automatically. Self-healing tests that learn from each fix. Integrates with IDE (Cursor) and Slack. Built for QA Engineers, SDETs, and AI/Automation roles.
+
+### Why this matters
+
+| Real problem | Industry impact | What mcp-lab-agent does |
+|--------------|-----------------|-------------------------|
+| **Flaky tests** | Teams spend 5–10h/week. Microsoft: ~25% of CI failures are flaky; Slack had 56% before remediation. | Detects flaky patterns, suggests fixes, auto-retries with corrections |
+| **"Why did it fail?"** | QAs and devs lose hours reading stack traces and logs. Generic "test failed" doesn't help. | **Cause + fix in 30 seconds.** Plain-language diagnosis: what happened, why, and how to fix |
+| **Broken selectors** | UI refactors break tests. Fragile selectors (CSS classes, long XPath) require manual maintenance. | Auto-fix selectors, suggests `data-testid`, applies corrections and retries |
+
+### The WOW: Self-healing tests that learn
+
+**When a test fails, you get the cause and fix in 30 seconds. No more digging through stack traces.**
+
+Each successful fix is saved and reused. The next time a similar failure happens, the agent applies the learned pattern automatically. **First-attempt success rate improves over time** — measurable via `mcp-lab-agent stats`.
+
+```bash
+npx mcp-lab-agent auto "login flow" --max-retries 5
+```
+
+*One command. Full analysis. Self-correction. Learning.*
+
+### Key outcomes
+
+- **Reduce debugging time** — "Why did it fail?" in plain language, not stack traces
+- **Cut flaky test maintenance** — Detection, diagnosis, and suggested fixes
+- **Scale QA without scaling headcount** — IDE agent + Slack bot; works with Cypress, Playwright, Appium, Jest, and 11+ frameworks
+- **Enterprise-ready** — Socket Mode (no public URL), Ollama (offline), Learning Hub for teams
+
+### How it works
+
+**🤖 IDE Agent (Cursor, Cline, Windsurf)** — Ask in chat: *"Generate a test for login"*, *"Why did the test fail?"*, *"Run test X"*. The agent detects your project, runs tests, analyzes failures, applies fixes, and learns.
+
+**💬 Slack Bot** — Mention the bot in any channel — it runs tests and posts the report. Works in corporate environments (Socket Mode, no ngrok). QA in the flow of conversation.
+
+### Who it's for
+
+| Role | Benefit |
+|------|---------|
+| **QAs & SDETs** | Assisted test generation, failure analysis with fix suggestions, flaky detection |
+| **Developers** | "Why did it fail?" in seconds, file/method analysis, direct IDE integration |
+| **Tech leads** | Risk visibility by area, stability metrics, decision-ready reports |
+| **Teams** | Learning Hub, Slack bot for QA in chat, CI/CD integration, Ollama (offline) |
+
+### How it's different
+
+| Other tools | mcp-lab-agent |
+|-------------|---------------|
+| Run tests only | Run, analyze cause, suggest fix, apply correction |
+| Generic "test failed" | Plain-language: "Login fails 30% of the time (timing). Add waitForDisplayed." |
+| No memory between runs | Learning system: each fix improves future generations |
+| One tool per task | End-to-end: generate, run, analyze, report, learn |
 
 ---
 
@@ -328,6 +378,7 @@ npm install playwright
 - [CHANGELOG.md](CHANGELOG.md) — Histórico de versões
 - [slack-bot/README.md](slack-bot/README.md) — Slack Bot
 - [learning-hub/README.md](learning-hub/README.md) — Learning Hub
+- [docs/PORTFOLIO_COPY_PT-BR.md](docs/PORTFOLIO_COPY_PT-BR.md) — Copy em PT-BR para portfólio (Vercel)
 
 ---
 
