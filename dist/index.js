@@ -1593,8 +1593,9 @@ Framework: ${fw}`;
       console.log(`\u2705 Teste gravado: ${testFilePath}`);
       console.log(`
 [Tentativa ${attempt}/${maxRetries}] Executando teste...`);
+      const runArg = fw === "playwright" ? path5.relative(PROJECT_ROOT5, testFilePath).replace(/\\/g, "/") : testFilePath;
       const runResult = await new Promise((resolve) => {
-        const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
+        const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", runArg], {
           cwd: PROJECT_ROOT5,
           stdio: ["inherit", "pipe", "pipe"],
           shell: process.platform === "win32"
@@ -4434,8 +4435,9 @@ Framework: ${fw}`;
         fs6.writeFileSync(testFilePath, testContent, "utf8");
         learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath}` });
         learnings.push({ attempt, action: "run_tests", result: "executando..." });
+        const runArg = fw === "playwright" ? path6.relative(PROJECT_ROOT6, testFilePath).replace(/\\/g, "/") : testFilePath;
         const runResult = await new Promise((resolve) => {
-          const child = spawn2("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
+          const child = spawn2("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", runArg], {
             cwd: PROJECT_ROOT6,
             stdio: ["inherit", "pipe", "pipe"],
             shell: process.platform === "win32"

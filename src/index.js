@@ -2925,8 +2925,9 @@ Retorne SOMENTE o código, sem markdown.`;
         learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath}` });
 
         learnings.push({ attempt, action: "run_tests", result: "executando..." });
+        const runArg = fw === "playwright" ? path.relative(PROJECT_ROOT, testFilePath).replace(/\\/g, "/") : testFilePath;
         const runResult = await new Promise((resolve) => {
-          const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
+          const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", runArg], {
             cwd: PROJECT_ROOT,
             stdio: ["inherit", "pipe", "pipe"],
             shell: process.platform === "win32",

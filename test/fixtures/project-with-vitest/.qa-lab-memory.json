@@ -59,7 +59,14 @@
       "duration": 1,
       "timestamp": "2026-03-19T23:26:11.260Z",
       "framework": "vitest"
+    },
+    {
+      "testFile": "all",
+      "passed": false,
+      "duration": 1,
+      "timestamp": "2026-03-19T23:53:00.050Z",
+      "framework": "vitest"
     }
   ],
-  "updatedAt": "2026-03-19T23:26:11.260Z"
+  "updatedAt": "2026-03-19T23:53:00.050Z"
 }
