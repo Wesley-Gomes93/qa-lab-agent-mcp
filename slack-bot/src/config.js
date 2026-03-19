@@ -1,6 +1,7 @@
 import { config } from "dotenv";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,14 +22,27 @@ for (const p of envPaths) {
   }
 }
 
+function expandTilde(filePath) {
+  if (!filePath || typeof filePath !== "string") return filePath;
+  if (filePath.startsWith("~/")) {
+    return path.join(os.homedir(), filePath.slice(2));
+  }
+  if (filePath === "~") {
+    return os.homedir();
+  }
+  return filePath;
+}
+
 function getMcpJsonPath() {
-  const home = process.env.HOME || process.env.USERPROFILE;
-  if (!home) return null;
-  return path.join(home, ".cursor", "mcp.json");
+  const envPath = process.env.QA_LAB_MCP_CONFIG;
+  if (envPath) {
+    return expandTilde(envPath);
+  }
+  return path.join(os.homedir(), ".cursor", "mcp.json");
 }
 
 function loadMcpConfig() {
-  const mcpPath = process.env.QA_LAB_MCP_CONFIG || getMcpJsonPath();
+  const mcpPath = getMcpJsonPath();
   if (!mcpPath || !existsSync(mcpPath)) return null;
   try {
     return JSON.parse(readFileSync(mcpPath, "utf8"));
@@ -40,7 +54,10 @@ function loadMcpConfig() {
 function getSlackConfigFromMcp() {
   const mcp = loadMcpConfig();
   const qa = mcp?.["qa-lab-agent"];
-  const slack = qa?.slack;
+  const slack =
+    qa?.slack ||
+    mcp?.mcpServers?.["qa-lab-agent"]?.slack ||
+    mcp?.mcpServers?.["qa-lab-agent"];
   if (!slack) return null;
   return {
     id: slack.id || slack.channelId,

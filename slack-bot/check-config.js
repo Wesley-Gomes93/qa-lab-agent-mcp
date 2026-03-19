@@ -6,6 +6,7 @@
 import { config } from "dotenv";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,11 +24,18 @@ for (const p of envPaths) {
     break;
   }
 }
-function getMcpJsonPath() {
-  const home = process.env.HOME || process.env.USERPROFILE;
-  return home ? path.join(home, ".cursor", "mcp.json") : null;
+function expandTilde(filePath) {
+  if (!filePath || typeof filePath !== "string") return filePath;
+  if (filePath.startsWith("~/")) return path.join(os.homedir(), filePath.slice(2));
+  if (filePath === "~") return os.homedir();
+  return filePath;
 }
-const mcpPath = process.env.QA_LAB_MCP_CONFIG || getMcpJsonPath();
+function getMcpJsonPath() {
+  const envPath = process.env.QA_LAB_MCP_CONFIG;
+  if (envPath) return expandTilde(envPath);
+  return path.join(os.homedir(), ".cursor", "mcp.json");
+}
+const mcpPath = getMcpJsonPath();
 
 console.log("\n🔧 QA Lab Slack Bot - Diagnóstico\n");
 console.log("1. Origens de config (mcp.json ou .env):");
