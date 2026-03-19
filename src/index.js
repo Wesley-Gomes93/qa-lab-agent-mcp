@@ -17,6 +17,7 @@ import { resolveLLMProvider, TASK_COMPLEXITY } from "./core/llm-router.js";
 import { loadProjectMemory, saveProjectMemory, getMemoryStats, analyzeTestStability } from "./core/memory.js";
 import { detectFlakyPatterns, detectMobileMappingInvisible, formatLearnedMessageForUser, inferFailurePattern, MOBILE_MAPPING_LESSON, MOBILE_SELECTOR_HIERARCHY, oneLineFailureSummary, UNIVERSAL_TEST_PRACTICES } from "./core/flaky-detection.js";
 import { collectTestFiles, detectDeviceConfig, detectProjectStructure, getFrameworkCwd, inferFrameworkFromFile, isTestFile, matchesFramework, analyzeCodeRisks } from "./core/project-structure.js";
+import { applySelectorFixAndRetry } from "./core/llm-call.js";
 import { parseTestRunResult, recordMetricEvent, extractFailuresFromOutput } from "./core/tool-helpers.js";
 import { handleCLI } from "./cli/commands.js";
 
@@ -966,45 +967,6 @@ async function callLlmForExplanation(provider, apiKey, baseUrl, model, systemPro
   });
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
-}
-
-/** Aplica correção de seletor no arquivo e retorna { applied }. Usado por run_tests com autoFixSelector. */
-async function applySelectorFixAndRetry(testFilePath, errorOutput, framework) {
-  const structure = detectProjectStructure();
-  const fw = framework || inferFrameworkFromFile(testFilePath.split("/").pop(), structure);
-  const fullPath = path.join(PROJECT_ROOT, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
-  if (!fs.existsSync(fullPath)) return { applied: false };
-
-  let testCode = "";
-  try {
-    testCode = fs.readFileSync(fullPath, "utf8");
-  } catch {
-    return { applied: false };
-  }
-
-  const llm = resolveLLMProvider("complex");
-  if (!llm.apiKey) return { applied: false };
-  const { provider, apiKey, baseUrl, model } = llm;
-
-  const systemPrompt = `Você é um especialista em testes E2E. O teste falhou porque um seletor não encontrou o elemento.
-Retorne APENAS em JSON (sem markdown) com a chave:
-- codigoCorrigido: string (o ARQUIVO COMPLETO do teste corrigido, com imports e toda a estrutura. Substitua o seletor quebrado por um mais resiliente: data-testid, role, ~accessibility-id, ou XPath relacional com tipo específico.)
-
-Framework: ${fw}. Priorize seletores estáveis.`;
-
-  const userPrompt = `Output do erro:\n---\n${(errorOutput || "").slice(0, 8000)}\n---\n\nCódigo atual:\n---\n${testCode.slice(0, 6000)}\n---`;
-
-  try {
-    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
-    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-    const data = JSON.parse(raw);
-    const fixed = (data.codigoCorrigido || "").trim();
-    if (fixed.length > 50 && (/describe|it\(|test\(|cy\.|page\.|\$\(/.test(fixed))) {
-      fs.writeFileSync(fullPath, fixed, "utf8");
-      return { applied: true };
-    }
-  } catch {}
-  return { applied: false };
 }
 
 /** Gera explicação de falha via LLM. Usado por por_que_falhou e qa_auto. Retorna { ok, structuredContent }. */

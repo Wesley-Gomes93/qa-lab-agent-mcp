@@ -6,8 +6,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { spawn as spawn2 } from "child_process";
-import path5 from "path";
-import fs5 from "fs";
+import path6 from "path";
+import fs6 from "fs";
 import { fileURLToPath, pathToFileURL } from "url";
 
 // src/core/llm-router.js
@@ -731,11 +731,90 @@ function analyzeCodeRisks() {
   });
 }
 
-// src/core/tool-helpers.js
+// src/core/llm-call.js
 import path3 from "path";
 import fs3 from "fs";
 var PROJECT_ROOT3 = process.cwd();
-var METRICS_FILE = path3.join(PROJECT_ROOT3, ".qa-lab-metrics.json");
+async function callLlm(provider, apiKey, baseUrl, model, systemPrompt, userPrompt) {
+  if (provider === "gemini") {
+    const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+    const res2 = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 4096 }
+      })
+    });
+    const data2 = await res2.json();
+    return data2.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.2,
+      max_tokens: 4096
+    })
+  });
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+async function applySelectorFixAndRetry(testFilePath, errorOutput, framework) {
+  const structure = detectProjectStructure();
+  const fw = framework || inferFrameworkFromFile(testFilePath.split("/").pop(), structure);
+  const fullPath = path3.join(PROJECT_ROOT3, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
+  if (!fs3.existsSync(fullPath)) return { applied: false };
+  let testCode = "";
+  try {
+    testCode = fs3.readFileSync(fullPath, "utf8");
+  } catch {
+    return { applied: false };
+  }
+  const llm = resolveLLMProvider("complex");
+  if (!llm.apiKey) return { applied: false };
+  const { provider, apiKey, baseUrl, model } = llm;
+  const systemPrompt = `Voc\xEA \xE9 um especialista em testes E2E. O teste falhou porque um seletor n\xE3o encontrou o elemento.
+Retorne APENAS em JSON (sem markdown) com a chave:
+- codigoCorrigido: string (o ARQUIVO COMPLETO do teste corrigido, com imports e toda a estrutura. Substitua o seletor quebrado por um mais resiliente: data-testid, role, ~accessibility-id, ou XPath relacional com tipo espec\xEDfico.)
+
+Framework: ${fw}. Priorize seletores est\xE1veis.`;
+  const userPrompt = `Output do erro:
+---
+${(errorOutput || "").slice(0, 8e3)}
+---
+
+C\xF3digo atual:
+---
+${testCode.slice(0, 6e3)}
+---`;
+  try {
+    let raw = await callLlm(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    const data = JSON.parse(raw);
+    const fixed = (data.codigoCorrigido || "").trim();
+    if (fixed.length > 50 && /describe|it\(|test\(|cy\.|page\.|\$\(/.test(fixed)) {
+      fs3.writeFileSync(fullPath, fixed, "utf8");
+      return { applied: true };
+    }
+  } catch {
+  }
+  return { applied: false };
+}
+
+// src/core/tool-helpers.js
+import path4 from "path";
+import fs4 from "fs";
+var PROJECT_ROOT4 = process.cwd();
+var METRICS_FILE = path4.join(PROJECT_ROOT4, ".qa-lab-metrics.json");
 function parseTestRunResult(runOutput, exitCode) {
   let passed = 0;
   let failed = 0;
@@ -749,8 +828,8 @@ function parseTestRunResult(runOutput, exitCode) {
 function recordMetricEvent(event) {
   try {
     let data = {};
-    if (fs3.existsSync(METRICS_FILE)) {
-      const raw = fs3.readFileSync(METRICS_FILE, "utf8");
+    if (fs4.existsSync(METRICS_FILE)) {
+      const raw = fs4.readFileSync(METRICS_FILE, "utf8");
       try {
         data = JSON.parse(raw);
       } catch {
@@ -760,7 +839,7 @@ function recordMetricEvent(event) {
     data.events.push({ ...event, timestamp: event.timestamp || (/* @__PURE__ */ new Date()).toISOString() });
     data.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
     if (data.events.length > 500) data.events = data.events.slice(-400);
-    fs3.writeFileSync(METRICS_FILE, JSON.stringify(data, null, 2), "utf8");
+    fs4.writeFileSync(METRICS_FILE, JSON.stringify(data, null, 2), "utf8");
   } catch {
   }
 }
@@ -780,10 +859,10 @@ function extractFailuresFromOutput(runOutput) {
 }
 
 // src/cli/commands.js
-import path4 from "path";
-import fs4 from "fs";
+import path5 from "path";
+import fs5 from "fs";
 import { spawn } from "child_process";
-var PROJECT_ROOT4 = process.cwd();
+var PROJECT_ROOT5 = process.cwd();
 var QA_AGENTS = {
   autonomous: { desc: "Modo aut\xF4nomo: gera, testa, corrige e aprende", tools: ["qa_auto"] },
   detection: { desc: "Detecta estrutura, frameworks, testes", tools: ["detect_project", "read_project", "list_test_files"] },
@@ -799,7 +878,7 @@ var QA_AGENTS = {
 function getExtensionAndBaseDir(fw, structure) {
   const extMap = { cypress: ".cy.js", playwright: ".spec.js", jest: ".test.js", vitest: ".test.js", robot: ".robot", pytest: ".py" };
   const ext = extMap[fw] || ".spec.js";
-  const baseDir = structure.testDirs[0] ? path4.join(PROJECT_ROOT4, structure.testDirs[0]) : path4.join(PROJECT_ROOT4, "tests");
+  const baseDir = structure.testDirs[0] ? path5.join(PROJECT_ROOT5, structure.testDirs[0]) : path5.join(PROJECT_ROOT5, "tests");
   return { ext, baseDir };
 }
 async function handleCLI() {
@@ -821,6 +900,7 @@ COMANDOS CLI:
   report [--full]                        Relat\xF3rio de evolu\xE7\xE3o e aprendizado (--full = completo com recomenda\xE7\xF5es)
   metrics-report [--json] [--output FILE] [path1 path2 ...]  Relat\xF3rio de m\xE9tricas (m\xE9todo, resultado). Sem paths = projeto atual.
   flaky-report [--runs N] [--spec FILE] [--output FILE]      Detecta testes flaky: roda N vezes (default 3), identifica intermit\xEAncia e causa prov\xE1vel
+  run [spec] [--device NAME] [--no-auto-fix]                 Roda testes: detecta device, executa e aplica auto-fix de seletor se falhar
   detect [--json]                       Detecta frameworks e estrutura
   route <tarefa>                        Sugere qual ferramenta usar
   list                                  Lista ferramentas MCP dispon\xEDveis
@@ -833,6 +913,8 @@ EXEMPLOS:
   mcp-lab-agent auto "login flow" --max-retries 5
   mcp-lab-agent stats
   mcp-lab-agent flaky-report --runs 5 --output flaky.md
+  mcp-lab-agent run specs/login.spec.js
+  mcp-lab-agent run specs/login.spec.js --device iPhone_15
   mcp-lab-agent detect --json
 
 INTEGRA\xC7\xC3O MCP (Cursor/Cline/Windsurf):
@@ -973,6 +1055,10 @@ ${recommendations.map((r) => `  \u2022 ${r}`).join("\n")}` : ""}
     await handleFlakyReportCommand();
     return true;
   }
+  if (cmd === "run") {
+    await handleRunCommand();
+    return true;
+  }
   return false;
 }
 async function handleMetricsReportCommand() {
@@ -985,27 +1071,27 @@ async function handleMetricsReportCommand() {
     if (outputIdx !== -1 && a === argv[outputIdx + 1]) return false;
     return true;
   });
-  const projectDirs = paths.length > 0 ? paths : [PROJECT_ROOT4];
+  const projectDirs = paths.length > 0 ? paths : [PROJECT_ROOT5];
   const reports = [];
   for (const dir of projectDirs) {
-    const resolved = path4.resolve(dir);
-    if (!fs4.existsSync(resolved)) {
+    const resolved = path5.resolve(dir);
+    if (!fs5.existsSync(resolved)) {
       console.warn(`\u26A0\uFE0F Diret\xF3rio n\xE3o encontrado: ${dir}`);
       continue;
     }
-    const memoryPath = path4.join(resolved, ".qa-lab-memory.json");
-    const metricsPath = path4.join(resolved, ".qa-lab-metrics.json");
+    const memoryPath = path5.join(resolved, ".qa-lab-memory.json");
+    const metricsPath = path5.join(resolved, ".qa-lab-metrics.json");
     let memory = {};
     let metrics = { events: [] };
-    if (fs4.existsSync(memoryPath)) {
+    if (fs5.existsSync(memoryPath)) {
       try {
-        memory = JSON.parse(fs4.readFileSync(memoryPath, "utf8"));
+        memory = JSON.parse(fs5.readFileSync(memoryPath, "utf8"));
       } catch {
       }
     }
-    if (fs4.existsSync(metricsPath)) {
+    if (fs5.existsSync(metricsPath)) {
       try {
-        metrics = JSON.parse(fs4.readFileSync(metricsPath, "utf8"));
+        metrics = JSON.parse(fs5.readFileSync(metricsPath, "utf8"));
       } catch {
       }
     }
@@ -1042,7 +1128,7 @@ async function handleMetricsReportCommand() {
       execByFramework[f].total++;
       if (e.passed) execByFramework[f].passed++;
     });
-    const projectName = path4.basename(resolved);
+    const projectName = path5.basename(resolved);
     reports.push({
       project: projectName,
       path: resolved,
@@ -1069,7 +1155,7 @@ async function handleMetricsReportCommand() {
   }
   if (jsonOnly) {
     const out = JSON.stringify({ projects: reports, generatedAt: (/* @__PURE__ */ new Date()).toISOString() }, null, 2);
-    if (outputFile) fs4.writeFileSync(outputFile, out, "utf8");
+    if (outputFile) fs5.writeFileSync(outputFile, out, "utf8");
     else console.log(out);
     return;
   }
@@ -1190,7 +1276,7 @@ async function handleMetricsReportCommand() {
 `;
   }
   if (outputFile) {
-    fs4.writeFileSync(outputFile, report, "utf8");
+    fs5.writeFileSync(outputFile, report, "utf8");
     console.log(`
 \u{1F4C4} Relat\xF3rio salvo em: ${outputFile}
 `);
@@ -1300,7 +1386,7 @@ Rodando testes ${runs}x...
   report += `*Use \`mcp-lab-agent por_que_falhou\` (via MCP) ou \`run_tests\` com \`explainOnFailure: true\` para an\xE1lise detalhada.*
 `;
   if (outputFile) {
-    fs4.writeFileSync(outputFile, report, "utf8");
+    fs5.writeFileSync(outputFile, report, "utf8");
     console.log(`
 \u{1F4C4} Relat\xF3rio salvo em: ${outputFile}
 `);
@@ -1311,10 +1397,10 @@ Rodando testes ${runs}x...
 }
 function getRunCommand(structure, fw, spec) {
   const cwdMap = {
-    cypress: structure.testDirs.includes("cypress") ? path4.join(PROJECT_ROOT4, "cypress") : structure.testDirs[0] ? path4.join(PROJECT_ROOT4, structure.testDirs[0]) : PROJECT_ROOT4,
-    playwright: structure.testDirs.includes("playwright") ? path4.join(PROJECT_ROOT4, "playwright") : structure.testDirs[0] ? path4.join(PROJECT_ROOT4, structure.testDirs[0]) : PROJECT_ROOT4
+    cypress: structure.testDirs.includes("cypress") ? path5.join(PROJECT_ROOT5, "cypress") : structure.testDirs[0] ? path5.join(PROJECT_ROOT5, structure.testDirs[0]) : PROJECT_ROOT5,
+    playwright: structure.testDirs.includes("playwright") ? path5.join(PROJECT_ROOT5, "playwright") : structure.testDirs[0] ? path5.join(PROJECT_ROOT5, structure.testDirs[0]) : PROJECT_ROOT5
   };
-  const cwd = cwdMap[fw] || getFrameworkCwd(structure, ["specs", "tests", "e2e"]) || PROJECT_ROOT4;
+  const cwd = cwdMap[fw] || getFrameworkCwd(structure, ["specs", "tests", "e2e"]) || PROJECT_ROOT5;
   if (fw === "cypress") {
     return { cmd: "npx", args: spec ? ["cypress", "run", "--spec", spec] : ["cypress", "run"], cwd };
   }
@@ -1322,32 +1408,89 @@ function getRunCommand(structure, fw, spec) {
     return { cmd: "npx", args: spec ? ["playwright", "test", spec] : ["playwright", "test"], cwd };
   }
   if (fw === "webdriverio" || fw === "appium") {
-    return { cmd: "npx", args: spec ? ["wdio", "run", spec] : ["wdio", "run"], cwd: PROJECT_ROOT4 };
+    return { cmd: "npx", args: spec ? ["wdio", "run", spec] : ["wdio", "run"], cwd: PROJECT_ROOT5 };
   }
   if (fw === "jest") {
-    return { cmd: "npx", args: spec ? ["jest", spec] : ["jest"], cwd: PROJECT_ROOT4 };
+    return { cmd: "npx", args: spec ? ["jest", spec] : ["jest"], cwd: PROJECT_ROOT5 };
   }
   if (fw === "vitest") {
-    return { cmd: "npx", args: ["vitest", "run", ...spec ? [spec] : []], cwd: PROJECT_ROOT4 };
+    return { cmd: "npx", args: ["vitest", "run", ...spec ? [spec] : []], cwd: PROJECT_ROOT5 };
   }
   if (fw === "mocha") {
-    return { cmd: "npx", args: spec ? ["mocha", spec] : ["mocha"], cwd: PROJECT_ROOT4 };
+    return { cmd: "npx", args: spec ? ["mocha", spec] : ["mocha"], cwd: PROJECT_ROOT5 };
   }
   if (fw === "pytest") {
-    return { cmd: "pytest", args: spec ? [spec] : [], cwd: PROJECT_ROOT4 };
+    return { cmd: "pytest", args: spec ? [spec] : [], cwd: PROJECT_ROOT5 };
   }
   if (fw === "robot") {
-    return { cmd: "robot", args: spec ? [spec] : [structure.testDirs[0] || "tests"], cwd: PROJECT_ROOT4 };
+    return { cmd: "robot", args: spec ? [spec] : [structure.testDirs[0] || "tests"], cwd: PROJECT_ROOT5 };
   }
-  return { cmd: "npm", args: ["test"], cwd: PROJECT_ROOT4 };
+  return { cmd: "npm", args: ["test"], cwd: PROJECT_ROOT5 };
 }
-function runTestsOnce(cmd, args, cwd) {
+async function handleRunCommand() {
+  const argv = process.argv.slice(2);
+  const deviceIdx = argv.indexOf("--device");
+  const device = deviceIdx !== -1 && argv[deviceIdx + 1] ? argv[deviceIdx + 1] : null;
+  const noAutoFix = argv.includes("--no-auto-fix");
+  const spec = argv.filter((a) => !a.startsWith("--") && a !== "run")[0] || null;
+  const structure = detectProjectStructure();
+  if (!structure.hasTests) {
+    console.error("\u274C Nenhum framework de teste detectado.");
+    process.exit(1);
+  }
+  const fw = structure.testFrameworks[0];
+  const deviceConfig = structure.hasMobile ? detectDeviceConfig(structure) : {};
+  const useDevice = device || deviceConfig.configuration || deviceConfig.device;
+  const doAutoFix = !noAutoFix && structure.hasMobile && !!spec;
+  let runEnv = { ...process.env };
+  if (Object.keys(deviceConfig.envOverrides || {}).length) {
+    runEnv = { ...runEnv, ...deviceConfig.envOverrides };
+  }
+  if (device) {
+    if (fw === "detox") runEnv.DETOX_CONFIGURATION = device;
+    else if (fw === "appium") runEnv.APPIUM_DEVICE_NAME = device;
+  } else if (deviceConfig.configuration && fw === "detox") {
+    runEnv.DETOX_CONFIGURATION = deviceConfig.configuration;
+  }
+  let { cmd, args, cwd } = getRunCommand(structure, fw, spec);
+  if (fw === "detox" && useDevice) {
+    args = [...args.slice(0, 2), "--configuration", useDevice, ...args.slice(2)];
+  }
+  const isSelectorFailure = (out) => /element not found|selector|timeout|locator|cy\.get|page\.locator|Unable to find/i.test(out || "");
+  console.log(`
+\u25B6\uFE0F Rodando testes${spec ? `: ${spec}` : ""}
+`);
+  if (useDevice) console.log(`   Device: ${useDevice}
+`);
+  let result = await runTestsOnce(cmd, args, cwd, runEnv);
+  let autoFixed = false;
+  if (!result.passed && doAutoFix && isSelectorFailure(result.runOutput) && resolveLLMProvider("complex").apiKey) {
+    console.log("\n\u26A0\uFE0F Falha por seletor. Aplicando corre\xE7\xE3o autom\xE1tica...\n");
+    const fixResult = await applySelectorFixAndRetry(spec, result.runOutput, fw);
+    if (fixResult.applied) {
+      autoFixed = true;
+      result = await runTestsOnce(cmd, args, cwd, runEnv);
+    }
+  }
+  if (result.passed) {
+    console.log(`
+\u2705 Testes passaram${autoFixed ? " (ap\xF3s corre\xE7\xE3o de seletor)" : ""}.
+`);
+  } else {
+    console.log(`
+\u274C Testes falharam.
+`);
+    if (result.runOutput) console.log(result.runOutput.slice(0, 800) + (result.runOutput.length > 800 ? "\n..." : ""));
+  }
+  process.exit(result.passed ? 0 : 1);
+}
+function runTestsOnce(cmd, args, cwd, env = process.env) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, {
       cwd,
       stdio: ["inherit", "pipe", "pipe"],
       shell: process.platform === "win32",
-      env: { ...process.env }
+      env: { ...process.env, ...env }
     });
     let stdout = "";
     let stderr = "";
@@ -1443,16 +1586,16 @@ Framework: ${fw}`;
         const fileName = cleanRequest.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
         const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
         const safeName = fileName + ext;
-        testFilePath = path4.join(baseDir, safeName);
-        if (!fs4.existsSync(baseDir)) fs4.mkdirSync(baseDir, { recursive: true });
+        testFilePath = path5.join(baseDir, safeName);
+        if (!fs5.existsSync(baseDir)) fs5.mkdirSync(baseDir, { recursive: true });
       }
-      fs4.writeFileSync(testFilePath, testContent, "utf8");
+      fs5.writeFileSync(testFilePath, testContent, "utf8");
       console.log(`\u2705 Teste gravado: ${testFilePath}`);
       console.log(`
 [Tentativa ${attempt}/${maxRetries}] Executando teste...`);
       const runResult = await new Promise((resolve) => {
         const child = spawn("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
-          cwd: PROJECT_ROOT4,
+          cwd: PROJECT_ROOT5,
           stdio: ["inherit", "pipe", "pipe"],
           shell: process.platform === "win32"
         });
@@ -1519,9 +1662,9 @@ async function handleAnalyzeCommand() {
   console.log(`\u2705 ${structure.testFrameworks.join(", ")} detectado(s)
 `);
   const testFiles = structure.testDirs.flatMap((dir) => {
-    const fullPath = path4.join(PROJECT_ROOT4, dir);
-    if (!fs4.existsSync(fullPath)) return [];
-    return fs4.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+    const fullPath = path5.join(PROJECT_ROOT5, dir);
+    if (!fs5.existsSync(fullPath)) return [];
+    return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
   });
   console.log(`\u2705 ${testFiles.length} teste(s) encontrado(s)
 `);
@@ -1580,13 +1723,13 @@ async function handleAnalyzeCommand() {
 }
 
 // src/index.js
-var PROJECT_ROOT5 = process.cwd();
-config({ path: path5.join(PROJECT_ROOT5, ".env") });
+var PROJECT_ROOT6 = process.cwd();
+config({ path: path6.join(PROJECT_ROOT6, ".env") });
 var server = new McpServer({
   name: "mcp-lab-agent",
   version: "2.1.9"
 });
-var METRICS_FILE2 = path5.join(PROJECT_ROOT5, ".qa-lab-metrics.json");
+var METRICS_FILE2 = path6.join(PROJECT_ROOT6, ".qa-lab-metrics.json");
 function appendMetricsEvent(event) {
   recordMetricEvent(event);
 }
@@ -1607,20 +1750,20 @@ server.registerTool(
   },
   async ({ path: filePath, encoding = "utf8" }) => {
     const normalized = filePath.replace(/^\//, "").replace(/\\/g, "/");
-    const fullPath = path5.join(PROJECT_ROOT5, normalized);
-    if (!fullPath.startsWith(PROJECT_ROOT5)) {
+    const fullPath = path6.join(PROJECT_ROOT6, normalized);
+    if (!fullPath.startsWith(PROJECT_ROOT6)) {
       return {
         content: [{ type: "text", text: "Caminho fora do projeto." }],
         structuredContent: { ok: false, error: "Path outside project" }
       };
     }
-    if (!fs5.existsSync(fullPath)) {
+    if (!fs6.existsSync(fullPath)) {
       return {
         content: [{ type: "text", text: `Arquivo n\xE3o encontrado: ${normalized}` }],
         structuredContent: { ok: false, error: "File not found" }
       };
     }
-    const stat = fs5.statSync(fullPath);
+    const stat = fs6.statSync(fullPath);
     if (stat.isDirectory()) {
       return {
         content: [{ type: "text", text: "\xC9 um diret\xF3rio. Use um caminho de arquivo." }],
@@ -1628,7 +1771,7 @@ server.registerTool(
       };
     }
     try {
-      const content = fs5.readFileSync(fullPath, encoding);
+      const content = fs6.readFileSync(fullPath, encoding);
       return {
         content: [{ type: "text", text: content }],
         structuredContent: { ok: true, content }
@@ -1712,7 +1855,7 @@ server.registerTool(
         structuredContent: { ok: false, error: "Playwright not installed. Run: npm install playwright" }
       };
     }
-    const outPath = screenshotPath ? path5.join(PROJECT_ROOT5, screenshotPath.replace(/^\//, "")) : path5.join(PROJECT_ROOT5, ".qa-lab-screenshot.png");
+    const outPath = screenshotPath ? path6.join(PROJECT_ROOT6, screenshotPath.replace(/^\//, "")) : path6.join(PROJECT_ROOT6, ".qa-lab-screenshot.png");
     const consoleLogs = [];
     const consoleErrors = [];
     const networkRequests = [];
@@ -1739,7 +1882,7 @@ server.registerTool(
       await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
       await page.screenshot({ path: outPath, fullPage: false });
       await browser.close();
-      const relPath = path5.relative(PROJECT_ROOT5, outPath);
+      const relPath = path6.relative(PROJECT_ROOT6, outPath);
       let summary = `Screenshot salvo: ${relPath}`;
       if (consoleErrors.length) summary += `
 
@@ -1905,11 +2048,11 @@ server.registerTool(
     if (selectedFramework === "cypress") {
       cmd = "npx";
       args = spec ? ["cypress", "run", "--spec", spec] : ["cypress", "run"];
-      cwd = structure.testDirs.includes("cypress") ? path5.join(PROJECT_ROOT5, "cypress") : structure.testDirs[0] ? path5.join(PROJECT_ROOT5, structure.testDirs[0]) : PROJECT_ROOT5;
+      cwd = structure.testDirs.includes("cypress") ? path6.join(PROJECT_ROOT6, "cypress") : structure.testDirs[0] ? path6.join(PROJECT_ROOT6, structure.testDirs[0]) : PROJECT_ROOT6;
     } else if (selectedFramework === "playwright") {
       cmd = "npx";
       args = spec ? ["playwright", "test", spec] : ["playwright", "test"];
-      cwd = structure.testDirs.includes("playwright") ? path5.join(PROJECT_ROOT5, "playwright") : structure.testDirs[0] ? path5.join(PROJECT_ROOT5, structure.testDirs[0]) : PROJECT_ROOT5;
+      cwd = structure.testDirs.includes("playwright") ? path6.join(PROJECT_ROOT6, "playwright") : structure.testDirs[0] ? path6.join(PROJECT_ROOT6, structure.testDirs[0]) : PROJECT_ROOT6;
     } else if (selectedFramework === "webdriverio") {
       cmd = "npx";
       args = spec ? ["wdio", "run", spec] : ["wdio", "run"];
@@ -1934,42 +2077,42 @@ server.registerTool(
       cmd = "npx";
       args = ["jest"];
       if (spec) args.push(spec);
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     } else if (selectedFramework === "vitest") {
       cmd = "npx";
       args = ["vitest", "run"];
       if (spec) args.push(spec);
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     } else if (selectedFramework === "mocha") {
       cmd = "npx";
       args = spec ? ["mocha", spec] : ["mocha"];
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     } else if (selectedFramework === "appium") {
       cmd = "npx";
       args = spec ? ["wdio", "run", spec] : ["wdio", "run"];
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     } else if (selectedFramework === "detox") {
       cmd = "npx";
       args = ["detox", "test"];
       if (useDevice) args.push("--configuration", useDevice);
       if (spec) args.push(spec);
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     } else if (selectedFramework === "robot") {
       cmd = "robot";
       args = spec ? [spec] : [structure.testDirs[0] || "tests"];
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     } else if (selectedFramework === "pytest") {
       cmd = "pytest";
       args = spec ? [spec] : [];
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     } else if (selectedFramework === "supertest" || selectedFramework === "pactum") {
       cmd = "npm";
       args = ["test"];
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     } else {
       cmd = "npm";
       args = ["test"];
-      cwd = PROJECT_ROOT5;
+      cwd = PROJECT_ROOT6;
     }
     const runTestsOnce2 = () => new Promise((resolve) => {
       const startTime = Date.now();
@@ -2011,7 +2154,7 @@ server.registerTool(
     }
     if (!result.passed && result.runOutput) {
       try {
-        fs5.writeFileSync(path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log"), result.runOutput, "utf8");
+        fs6.writeFileSync(path6.join(PROJECT_ROOT6, ".qa-lab-last-failure.log"), result.runOutput, "utf8");
       } catch {
       }
     }
@@ -2154,10 +2297,10 @@ server.registerTool(
 ${referenceCode.slice(0, 8e3)}`;
     if (referencePaths?.length) {
       for (const p of referencePaths.slice(0, 5)) {
-        const full = path5.join(PROJECT_ROOT5, p.replace(/^\//, "").replace(/\\/g, "/"));
-        if (fs5.existsSync(full)) {
+        const full = path6.join(PROJECT_ROOT6, p.replace(/^\//, "").replace(/\\/g, "/"));
+        if (fs6.existsSync(full)) {
           try {
-            const content = fs5.readFileSync(full, "utf8");
+            const content = fs6.readFileSync(full, "utf8");
             referenceBlock += `
 
 --- Arquivo: ${p} ---
@@ -2292,7 +2435,7 @@ function getExtensionAndBaseDir2(fw, structure) {
     robot: structure.testDirs.includes("robot") ? "robot" : structure.testDirs[0] || "tests",
     behave: structure.testDirs.includes("features") ? "features" : structure.testDirs[0] || "tests"
   };
-  const baseDir = path5.join(PROJECT_ROOT5, baseMap[fw] || structure.testDirs[0] || "tests");
+  const baseDir = path6.join(PROJECT_ROOT6, baseMap[fw] || structure.testDirs[0] || "tests");
   return { ext, baseDir };
 }
 server.registerTool(
@@ -2337,13 +2480,13 @@ server.registerTool(
     const { ext, baseDir } = getExtensionAndBaseDir2(fw, structure);
     const safeName = name.replace(/[^a-z0-9-_]/gi, "-").replace(/-+/g, "-").replace(/_+/g, "_").replace(/\.(cy|spec|test|robot|feature|py)\.?(js|ts|py)?$/i, "").replace(/^[-_]+|[-_]+$/g, "");
     const fileName = ext.startsWith("_") ? `${safeName}${ext}` : `${safeName}${ext}`;
-    const targetDir = subdir ? path5.join(baseDir, subdir) : baseDir;
-    const filePath = path5.join(targetDir, fileName);
+    const targetDir = subdir ? path6.join(baseDir, subdir) : baseDir;
+    const filePath = path6.join(targetDir, fileName);
     try {
-      if (!fs5.existsSync(targetDir)) {
-        fs5.mkdirSync(targetDir, { recursive: true });
+      if (!fs6.existsSync(targetDir)) {
+        fs6.mkdirSync(targetDir, { recursive: true });
       }
-      fs5.writeFileSync(filePath, content, "utf8");
+      fs6.writeFileSync(filePath, content, "utf8");
       return {
         content: [{ type: "text", text: `Arquivo gravado: ${filePath}` }],
         structuredContent: { ok: true, path: filePath }
@@ -2470,57 +2613,16 @@ async function callLlmForExplanation(provider, apiKey, baseUrl, model, systemPro
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
 }
-async function applySelectorFixAndRetry(testFilePath, errorOutput, framework) {
-  const structure = detectProjectStructure();
-  const fw = framework || inferFrameworkFromFile(testFilePath.split("/").pop(), structure);
-  const fullPath = path5.join(PROJECT_ROOT5, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
-  if (!fs5.existsSync(fullPath)) return { applied: false };
-  let testCode = "";
-  try {
-    testCode = fs5.readFileSync(fullPath, "utf8");
-  } catch {
-    return { applied: false };
-  }
-  const llm = resolveLLMProvider("complex");
-  if (!llm.apiKey) return { applied: false };
-  const { provider, apiKey, baseUrl, model } = llm;
-  const systemPrompt = `Voc\xEA \xE9 um especialista em testes E2E. O teste falhou porque um seletor n\xE3o encontrou o elemento.
-Retorne APENAS em JSON (sem markdown) com a chave:
-- codigoCorrigido: string (o ARQUIVO COMPLETO do teste corrigido, com imports e toda a estrutura. Substitua o seletor quebrado por um mais resiliente: data-testid, role, ~accessibility-id, ou XPath relacional com tipo espec\xEDfico.)
-
-Framework: ${fw}. Priorize seletores est\xE1veis.`;
-  const userPrompt = `Output do erro:
----
-${(errorOutput || "").slice(0, 8e3)}
----
-
-C\xF3digo atual:
----
-${testCode.slice(0, 6e3)}
----`;
-  try {
-    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
-    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-    const data = JSON.parse(raw);
-    const fixed = (data.codigoCorrigido || "").trim();
-    if (fixed.length > 50 && /describe|it\(|test\(|cy\.|page\.|\$\(/.test(fixed)) {
-      fs5.writeFileSync(fullPath, fixed, "utf8");
-      return { applied: true };
-    }
-  } catch {
-  }
-  return { applied: false };
-}
 async function generateFailureExplanation(resolvedOutput, testFilePath = null) {
   const structure = detectProjectStructure();
   const fw = structure.testFrameworks[0] || "unknown";
   let testCode = "";
   if (testFilePath) {
     const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
-    const fullPath = path5.join(PROJECT_ROOT5, normalized);
-    if (fs5.existsSync(fullPath) && !fs5.statSync(fullPath).isDirectory()) {
+    const fullPath = path6.join(PROJECT_ROOT6, normalized);
+    if (fs6.existsSync(fullPath) && !fs6.statSync(fullPath).isDirectory()) {
       try {
-        testCode = fs5.readFileSync(fullPath, "utf8");
+        testCode = fs6.readFileSync(fullPath, "utf8");
       } catch {
       }
     }
@@ -2599,10 +2701,10 @@ server.registerTool(
   async ({ errorOutput, testFilePath }) => {
     let resolvedOutput = errorOutput?.trim() || "";
     if (!resolvedOutput) {
-      const lastFailurePath = path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log");
-      if (fs5.existsSync(lastFailurePath)) {
+      const lastFailurePath = path6.join(PROJECT_ROOT6, ".qa-lab-last-failure.log");
+      if (fs6.existsSync(lastFailurePath)) {
         try {
-          resolvedOutput = fs5.readFileSync(lastFailurePath, "utf8");
+          resolvedOutput = fs6.readFileSync(lastFailurePath, "utf8");
         } catch {
         }
       }
@@ -2728,9 +2830,9 @@ server.registerTool(
     const fw = framework || inferFrameworkFromFile(testFilePath.split("/").pop(), structure);
     let resolvedOutput = errorOutput;
     if (!resolvedOutput) {
-      const logPath = path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log");
-      if (fs5.existsSync(logPath)) {
-        resolvedOutput = fs5.readFileSync(logPath, "utf8");
+      const logPath = path6.join(PROJECT_ROOT6, ".qa-lab-last-failure.log");
+      if (fs6.existsSync(logPath)) {
+        resolvedOutput = fs6.readFileSync(logPath, "utf8");
       }
     }
     if (!resolvedOutput) {
@@ -2746,10 +2848,10 @@ server.registerTool(
       };
     }
     let testCode = "";
-    const fullPath = path5.join(PROJECT_ROOT5, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
-    if (fs5.existsSync(fullPath)) {
+    const fullPath = path6.join(PROJECT_ROOT6, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
+    if (fs6.existsSync(fullPath)) {
       try {
-        testCode = fs5.readFileSync(fullPath, "utf8");
+        testCode = fs6.readFileSync(fullPath, "utf8");
       } catch {
       }
     }
@@ -2861,10 +2963,10 @@ server.registerTool(
     let instructions = "";
     let contextForGenerate = "";
     if (elementsJsonPath) {
-      const fullPath = path5.join(PROJECT_ROOT5, elementsJsonPath.replace(/^\//, "").replace(/\\/g, "/"));
-      if (fs5.existsSync(fullPath)) {
+      const fullPath = path6.join(PROJECT_ROOT6, elementsJsonPath.replace(/^\//, "").replace(/\\/g, "/"));
+      if (fs6.existsSync(fullPath)) {
         try {
-          const raw = fs5.readFileSync(fullPath, "utf8");
+          const raw = fs6.readFileSync(fullPath, "utf8");
           const parsed = JSON.parse(raw);
           const arr = Array.isArray(parsed) ? parsed : parsed.elements || parsed.items || [];
           arr.forEach((el) => {
@@ -2965,20 +3067,20 @@ server.registerTool(
   },
   async ({ path: filePath }) => {
     const normalized = filePath.replace(/^\//, "").replace(/\\/g, "/");
-    const fullPath = path5.join(PROJECT_ROOT5, normalized);
-    if (!fullPath.startsWith(PROJECT_ROOT5)) {
+    const fullPath = path6.join(PROJECT_ROOT6, normalized);
+    if (!fullPath.startsWith(PROJECT_ROOT6)) {
       return {
         content: [{ type: "text", text: "Caminho fora do projeto." }],
         structuredContent: { ok: false, error: "Path outside project" }
       };
     }
-    if (!fs5.existsSync(fullPath)) {
+    if (!fs6.existsSync(fullPath)) {
       return {
         content: [{ type: "text", text: `Arquivo n\xE3o encontrado: ${normalized}` }],
         structuredContent: { ok: false, error: "File not found" }
       };
     }
-    const stat = fs5.statSync(fullPath);
+    const stat = fs6.statSync(fullPath);
     if (stat.isDirectory()) {
       return {
         content: [{ type: "text", text: "\xC9 um diret\xF3rio. Informe um arquivo." }],
@@ -2987,7 +3089,7 @@ server.registerTool(
     }
     let fileContent = "";
     try {
-      fileContent = fs5.readFileSync(fullPath, "utf8");
+      fileContent = fs6.readFileSync(fullPath, "utf8");
     } catch (err) {
       return {
         content: [{ type: "text", text: `Erro ao ler: ${err.message}` }],
@@ -3005,7 +3107,7 @@ server.registerTool(
       };
     }
     const { provider, apiKey, baseUrl, model } = llm;
-    const ext = path5.extname(fullPath).toLowerCase();
+    const ext = path6.extname(fullPath).toLowerCase();
     const lang = [".ts", ".tsx"].includes(ext) ? "TypeScript" : [".js", ".jsx"].includes(ext) ? "JavaScript" : [".py"].includes(ext) ? "Python" : "c\xF3digo";
     const systemPrompt = `Voc\xEA \xE9 um revisor de c\xF3digo experiente em QA e testes. Analise o arquivo e cada m\xE9todo/fun\xE7\xE3o, respondendo em JSON v\xE1lido (sem markdown) com a estrutura:
 
@@ -3197,9 +3299,9 @@ server.registerTool(
     const msByPeriod = { "7d": 7 * 24 * 60 * 60 * 1e3, "30d": 30 * 24 * 60 * 60 * 1e3, all: Infinity };
     const cutoff = now - msByPeriod[period];
     let data = { events: [] };
-    if (fs5.existsSync(METRICS_FILE2)) {
+    if (fs6.existsSync(METRICS_FILE2)) {
       try {
-        data = JSON.parse(fs5.readFileSync(METRICS_FILE2, "utf8"));
+        data = JSON.parse(fs6.readFileSync(METRICS_FILE2, "utf8"));
       } catch {
       }
     }
@@ -3236,9 +3338,9 @@ server.registerTool(
       };
     }
     let flowCoverage = null;
-    if (fs5.existsSync(FLOWS_CONFIG_FILE)) {
+    if (fs6.existsSync(FLOWS_CONFIG_FILE)) {
       try {
-        const flowsConfig = JSON.parse(fs5.readFileSync(FLOWS_CONFIG_FILE, "utf8"));
+        const flowsConfig = JSON.parse(fs6.readFileSync(FLOWS_CONFIG_FILE, "utf8"));
         const flows = flowsConfig.flows || [];
         const structure = detectProjectStructure();
         const allTestFiles = new Set(collectTestFiles(structure).map((e) => e.path));
@@ -3377,7 +3479,7 @@ server.registerTool(
     }
     return new Promise((resolve) => {
       const child = spawn2(cmd, args, {
-        cwd: PROJECT_ROOT5,
+        cwd: PROJECT_ROOT6,
         stdio: ["inherit", "pipe", "pipe"],
         shell: process.platform === "win32",
         env: { ...process.env }
@@ -3423,13 +3525,13 @@ server.registerTool(
   async ({ packageManager = "auto" }) => {
     let pm = packageManager;
     if (pm === "auto") {
-      if (fs5.existsSync(path5.join(PROJECT_ROOT5, "yarn.lock"))) pm = "yarn";
-      else if (fs5.existsSync(path5.join(PROJECT_ROOT5, "pnpm-lock.yaml"))) pm = "pnpm";
+      if (fs6.existsSync(path6.join(PROJECT_ROOT6, "yarn.lock"))) pm = "yarn";
+      else if (fs6.existsSync(path6.join(PROJECT_ROOT6, "pnpm-lock.yaml"))) pm = "pnpm";
       else pm = "npm";
     }
     return new Promise((resolve) => {
       const child = spawn2(pm, ["install"], {
-        cwd: PROJECT_ROOT5,
+        cwd: PROJECT_ROOT6,
         stdio: "inherit",
         shell: process.platform === "win32",
         env: { ...process.env }
@@ -3484,9 +3586,9 @@ server.registerTool(
     report += `\u2705 ${structure.testFrameworks.join(", ")} detectado(s)
 `;
     const testFiles = structure.testDirs.flatMap((dir) => {
-      const fullPath = path5.join(PROJECT_ROOT5, dir);
-      if (!fs5.existsSync(fullPath)) return [];
-      return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+      const fullPath = path6.join(PROJECT_ROOT6, dir);
+      if (!fs6.existsSync(fullPath)) return [];
+      return fs6.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
     });
     report += `\u2705 ${testFiles.length} teste(s) encontrado(s)
 
@@ -3497,7 +3599,7 @@ server.registerTool(
       if (fw) {
         const runResult = await new Promise((resolve) => {
           const child = spawn2("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run"], {
-            cwd: PROJECT_ROOT5,
+            cwd: PROJECT_ROOT6,
             stdio: ["inherit", "pipe", "pipe"],
             shell: process.platform === "win32"
           });
@@ -3670,9 +3772,9 @@ server.registerTool(
     const memory = loadProjectMemory();
     const stats = getMemoryStats();
     const testFiles = structure.testDirs.flatMap((dir) => {
-      const fullPath = path5.join(PROJECT_ROOT5, dir);
-      if (!fs5.existsSync(fullPath)) return [];
-      return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+      const fullPath = path6.join(PROJECT_ROOT6, dir);
+      if (!fs6.existsSync(fullPath)) return [];
+      return fs6.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
     });
     let score = 0;
     const recommendations = [];
@@ -3739,9 +3841,9 @@ server.registerTool(
     const memory = loadProjectMemory();
     const suggestions = [];
     const testFiles = structure.testDirs.flatMap((dir) => {
-      const fullPath = path5.join(PROJECT_ROOT5, dir);
-      if (!fs5.existsSync(fullPath)) return [];
-      return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f)).map((f) => f.toLowerCase());
+      const fullPath = path6.join(PROJECT_ROOT6, dir);
+      if (!fs6.existsSync(fullPath)) return [];
+      return fs6.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f)).map((f) => f.toLowerCase());
     });
     const criticalFlows = ["login", "logout", "checkout", "payment", "signup", "search"];
     const missingFlows = criticalFlows.filter((flow) => !testFiles.some((f) => f.includes(flow)));
@@ -3990,9 +4092,9 @@ server.registerTool(
     const structure = detectProjectStructure();
     const stats = getMemoryStats();
     const testFiles = structure.testDirs.flatMap((dir) => {
-      const fullPath = path5.join(PROJECT_ROOT5, dir);
-      if (!fs5.existsSync(fullPath)) return [];
-      return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
+      const fullPath = path6.join(PROJECT_ROOT6, dir);
+      if (!fs6.existsSync(fullPath)) return [];
+      return fs6.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f));
     });
     const industryBenchmarks = {
       coverageAvg: "70-80%",
@@ -4059,16 +4161,16 @@ server.registerTool(
       testFiles = [testFile];
     } else {
       testFiles = structure.testDirs.flatMap((dir) => {
-        const fullPath = path5.join(PROJECT_ROOT5, dir);
-        if (!fs5.existsSync(fullPath)) return [];
-        return fs5.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f)).map((f) => path5.join(dir, f));
+        const fullPath = path6.join(PROJECT_ROOT6, dir);
+        if (!fs6.existsSync(fullPath)) return [];
+        return fs6.readdirSync(fullPath, { recursive: true }).filter((f) => /\.(spec|test|cy)\.(js|ts|jsx|tsx|py)$/.test(f)).map((f) => path6.join(dir, f));
       });
     }
     const predictions = [];
     for (const file of testFiles.slice(0, 20)) {
-      const fullPath = path5.join(PROJECT_ROOT5, file);
-      if (!fs5.existsSync(fullPath)) continue;
-      const content = fs5.readFileSync(fullPath, "utf8");
+      const fullPath = path6.join(PROJECT_ROOT6, file);
+      if (!fs6.existsSync(fullPath)) continue;
+      const content = fs6.readFileSync(fullPath, "utf8");
       const reasons = [];
       let riskScore = 0;
       if (/\.(class|id)\s*=|querySelector|\.class-name/i.test(content)) {
@@ -4143,7 +4245,7 @@ server.registerTool(
     if (fw === "jest") {
       return new Promise((resolve) => {
         const child = spawn2("npx", ["jest", "--coverage"], {
-          cwd: PROJECT_ROOT5,
+          cwd: PROJECT_ROOT6,
           stdio: ["inherit", "pipe", "pipe"],
           shell: process.platform === "win32",
           env: { ...process.env }
@@ -4310,15 +4412,15 @@ Framework: ${fw}`;
           const fileName = request.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
           const { ext, baseDir } = getExtensionAndBaseDir2(fw, structure);
           const safeName = fileName + ext;
-          testFilePath = path5.join(baseDir, safeName);
-          if (!fs5.existsSync(baseDir)) fs5.mkdirSync(baseDir, { recursive: true });
+          testFilePath = path6.join(baseDir, safeName);
+          if (!fs6.existsSync(baseDir)) fs6.mkdirSync(baseDir, { recursive: true });
         }
-        fs5.writeFileSync(testFilePath, testContent, "utf8");
+        fs6.writeFileSync(testFilePath, testContent, "utf8");
         learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath}` });
         learnings.push({ attempt, action: "run_tests", result: "executando..." });
         const runResult = await new Promise((resolve) => {
           const child = spawn2("npx", [fw === "cypress" ? "cypress" : fw === "playwright" ? "playwright" : fw, fw === "cypress" ? "run" : fw === "playwright" ? "test" : "run", testFilePath], {
-            cwd: PROJECT_ROOT5,
+            cwd: PROJECT_ROOT6,
             stdio: ["inherit", "pipe", "pipe"],
             shell: process.platform === "win32"
           });
@@ -4376,7 +4478,7 @@ ${runResult.output.slice(0, 500)}${learnedAppendix2}` }],
         learnings.push({ attempt, action: "apply_fix", result: "aplicando corre\xE7\xE3o..." });
         const fixedCode = explainResult.structuredContent.sugestaoCorrecao;
         testContent = fixedCode;
-        fs5.writeFileSync(testFilePath, testContent, "utf8");
+        fs6.writeFileSync(testFilePath, testContent, "utf8");
         learnings.push({ attempt, action: "apply_fix", result: "corre\xE7\xE3o aplicada" });
         if (flakyAnalysis.isLikelyFlaky) {
           const inferredPattern = inferFailurePattern(runResult.output, fw);
@@ -4461,15 +4563,15 @@ test.describe('${type.toUpperCase()} Test', () => {
 async function main() {
   const cmd = process.argv[2];
   if (cmd === "learning-hub") {
-    const __dirname2 = path5.dirname(fileURLToPath(import.meta.url));
-    const hubPath = path5.join(__dirname2, "..", "learning-hub", "src", "server.js");
+    const __dirname2 = path6.dirname(fileURLToPath(import.meta.url));
+    const hubPath = path6.join(__dirname2, "..", "learning-hub", "src", "server.js");
     const hubUrl2 = pathToFileURL(hubPath).href;
     await import(hubUrl2);
     return;
   }
   if (cmd === "slack-bot") {
-    const __dirname2 = path5.dirname(fileURLToPath(import.meta.url));
-    const slackBotPath = path5.join(__dirname2, "..", "slack-bot", "src", "index.js");
+    const __dirname2 = path6.dirname(fileURLToPath(import.meta.url));
+    const slackBotPath = path6.join(__dirname2, "..", "slack-bot", "src", "index.js");
     const slackBotUrl = pathToFileURL(slackBotPath).href;
     await import(slackBotUrl);
     return;

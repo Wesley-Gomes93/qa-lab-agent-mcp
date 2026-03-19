@@ -1,9 +1,10 @@
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
-import { detectProjectStructure, getFrameworkCwd } from "../core/project-structure.js";
+import { detectDeviceConfig, detectProjectStructure, getFrameworkCwd } from "../core/project-structure.js";
 import { loadProjectMemory, saveProjectMemory, getMemoryStats, analyzeTestStability } from "../core/memory.js";
 import { resolveLLMProvider } from "../core/llm-router.js";
+import { applySelectorFixAndRetry } from "../core/llm-call.js";
 import { detectFlakyPatterns } from "../core/flaky-detection.js";
 import { analyzeCodeRisks } from "../core/project-structure.js";
 
@@ -49,6 +50,7 @@ COMANDOS CLI:
   report [--full]                        Relatório de evolução e aprendizado (--full = completo com recomendações)
   metrics-report [--json] [--output FILE] [path1 path2 ...]  Relatório de métricas (método, resultado). Sem paths = projeto atual.
   flaky-report [--runs N] [--spec FILE] [--output FILE]      Detecta testes flaky: roda N vezes (default 3), identifica intermitência e causa provável
+  run [spec] [--device NAME] [--no-auto-fix]                 Roda testes: detecta device, executa e aplica auto-fix de seletor se falhar
   detect [--json]                       Detecta frameworks e estrutura
   route <tarefa>                        Sugere qual ferramenta usar
   list                                  Lista ferramentas MCP disponíveis
@@ -61,6 +63,8 @@ EXEMPLOS:
   mcp-lab-agent auto "login flow" --max-retries 5
   mcp-lab-agent stats
   mcp-lab-agent flaky-report --runs 5 --output flaky.md
+  mcp-lab-agent run specs/login.spec.js
+  mcp-lab-agent run specs/login.spec.js --device iPhone_15
   mcp-lab-agent detect --json
 
 INTEGRAÇÃO MCP (Cursor/Cline/Windsurf):
@@ -204,6 +208,11 @@ ${format === "full" && recommendations.length > 0 ? `\nRecomendações para apri
 
   if (cmd === "flaky-report") {
     await handleFlakyReportCommand();
+    return true;
+  }
+
+  if (cmd === "run") {
+    await handleRunCommand();
     return true;
   }
 
@@ -533,13 +542,74 @@ function getRunCommand(structure, fw, spec) {
   return { cmd: "npm", args: ["test"], cwd: PROJECT_ROOT };
 }
 
-function runTestsOnce(cmd, args, cwd) {
+async function handleRunCommand() {
+  const argv = process.argv.slice(2);
+  const deviceIdx = argv.indexOf("--device");
+  const device = deviceIdx !== -1 && argv[deviceIdx + 1] ? argv[deviceIdx + 1] : null;
+  const noAutoFix = argv.includes("--no-auto-fix");
+  const spec = argv.filter((a) => !a.startsWith("--") && a !== "run")[0] || null;
+
+  const structure = detectProjectStructure();
+  if (!structure.hasTests) {
+    console.error("❌ Nenhum framework de teste detectado.");
+    process.exit(1);
+  }
+
+  const fw = structure.testFrameworks[0];
+  const deviceConfig = structure.hasMobile ? detectDeviceConfig(structure) : {};
+  const useDevice = device || deviceConfig.configuration || deviceConfig.device;
+  const doAutoFix = !noAutoFix && structure.hasMobile && !!spec;
+
+  let runEnv = { ...process.env };
+  if (Object.keys(deviceConfig.envOverrides || {}).length) {
+    runEnv = { ...runEnv, ...deviceConfig.envOverrides };
+  }
+  if (device) {
+    if (fw === "detox") runEnv.DETOX_CONFIGURATION = device;
+    else if (fw === "appium") runEnv.APPIUM_DEVICE_NAME = device;
+  } else if (deviceConfig.configuration && fw === "detox") {
+    runEnv.DETOX_CONFIGURATION = deviceConfig.configuration;
+  }
+
+  let { cmd, args, cwd } = getRunCommand(structure, fw, spec);
+  if (fw === "detox" && useDevice) {
+    args = [...args.slice(0, 2), "--configuration", useDevice, ...args.slice(2)];
+  }
+
+  const isSelectorFailure = (out) => /element not found|selector|timeout|locator|cy\.get|page\.locator|Unable to find/i.test(out || "");
+
+  console.log(`\n▶️ Rodando testes${spec ? `: ${spec}` : ""}\n`);
+  if (useDevice) console.log(`   Device: ${useDevice}\n`);
+
+  let result = await runTestsOnce(cmd, args, cwd, runEnv);
+  let autoFixed = false;
+
+  if (!result.passed && doAutoFix && isSelectorFailure(result.runOutput) && resolveLLMProvider("complex").apiKey) {
+    console.log("\n⚠️ Falha por seletor. Aplicando correção automática...\n");
+    const fixResult = await applySelectorFixAndRetry(spec, result.runOutput, fw);
+    if (fixResult.applied) {
+      autoFixed = true;
+      result = await runTestsOnce(cmd, args, cwd, runEnv);
+    }
+  }
+
+  if (result.passed) {
+    console.log(`\n✅ Testes passaram${autoFixed ? " (após correção de seletor)" : ""}.\n`);
+  } else {
+    console.log(`\n❌ Testes falharam.\n`);
+    if (result.runOutput) console.log(result.runOutput.slice(0, 800) + (result.runOutput.length > 800 ? "\n..." : ""));
+  }
+
+  process.exit(result.passed ? 0 : 1);
+}
+
+function runTestsOnce(cmd, args, cwd, env = process.env) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, {
       cwd,
       stdio: ["inherit", "pipe", "pipe"],
       shell: process.platform === "win32",
-      env: { ...process.env },
+      env: { ...process.env, ...env },
     });
     let stdout = "";
     let stderr = "";
