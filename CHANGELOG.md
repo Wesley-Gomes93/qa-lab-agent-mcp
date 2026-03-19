@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.5] - 2026-03-18
+
+### Learning Hub (cérebro central)
+- **API centralizada:** `POST /learning`, `GET /patterns` — acumula aprendizados entre projetos
+- **Dashboard web:** Taxa de sucesso, padrões por tipo, recomendações (http://localhost:3847)
+- **Sync automático:** Com `LEARNING_HUB_URL` no `.env`, o agente envia learnings ao Hub
+- **Comando:** `npx mcp-lab-agent learning-hub`
+
 ## [2.1.2] - 2026-03-18
 
 ### Slack Bot

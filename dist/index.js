@@ -42,6 +42,44 @@ function resolveLLMProvider(taskType = "simple") {
 // src/core/memory.js
 import path from "path";
 import fs from "fs";
+
+// src/core/hub-client.js
+var hubUrl = null;
+function getHubUrl() {
+  if (hubUrl) return hubUrl;
+  const env = process.env.LEARNING_HUB_URL || process.env.QA_LAB_LEARNING_HUB_URL;
+  if (env) {
+    hubUrl = env.replace(/\/$/, "");
+    return hubUrl;
+  }
+  return null;
+}
+async function syncLearningsToHub(learnings) {
+  const baseUrl = getHubUrl();
+  if (!baseUrl) return;
+  const entries = Array.isArray(learnings) ? learnings : [learnings];
+  if (entries.length === 0) return;
+  const projectId = process.env.LEARNING_HUB_PROJECT_ID || process.cwd().split("/").pop() || "default";
+  const payload = entries.map((e) => ({
+    ...e,
+    projectId
+  }));
+  try {
+    const res = await fetch(`${baseUrl}/learning`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ learnings: payload })
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      console.warn(`[learning-hub] POST /learning failed ${res.status}: ${txt}`);
+    }
+  } catch (err) {
+    console.warn("[learning-hub] sync failed:", err.message);
+  }
+}
+
+// src/core/memory.js
 var PROJECT_ROOT = process.cwd();
 var MEMORY_FILE = path.join(PROJECT_ROOT, ".qa-lab-memory.json");
 var FLOWS_CONFIG_FILE2 = path.join(PROJECT_ROOT, "qa-lab-flows.json");
@@ -74,6 +112,8 @@ function saveProjectMemory(updates) {
       data.learnings = data.learnings || [];
       data.learnings.push(...updates.learnings);
       if (data.learnings.length > 200) data.learnings = data.learnings.slice(-150);
+      syncLearningsToHub(updates.learnings).catch(() => {
+      });
     }
     if (updates.execution) {
       data.executions = data.executions || [];
@@ -85,12 +125,17 @@ function saveProjectMemory(updates) {
   } catch {
   }
 }
+var LEARNING_TYPES = ["selector_fix", "timing_fix", "element_not_rendered", "element_not_visible", "element_stale", "mobile_mapping_invisible"];
 function getMemoryStats() {
   const memory = loadProjectMemory();
   const learnings = memory.learnings || [];
   const successfulFixes = learnings.filter((l) => l.success);
   const selectorFixes = learnings.filter((l) => l.type === "selector_fix");
   const timingFixes = learnings.filter((l) => l.type === "timing_fix");
+  const byLearningType = {};
+  for (const t of LEARNING_TYPES) {
+    byLearningType[t] = learnings.filter((l) => l.type === t).length;
+  }
   const totalTests = learnings.filter((l) => l.type === "test_generated").length;
   const firstAttemptSuccess = learnings.filter((l) => l.type === "test_generated" && l.passedFirstTime).length;
   return {
@@ -98,6 +143,7 @@ function getMemoryStats() {
     successfulFixes: successfulFixes.length,
     selectorFixes: selectorFixes.length,
     timingFixes: timingFixes.length,
+    byLearningType,
     testsGenerated: totalTests,
     firstAttemptSuccessRate: totalTests > 0 ? Math.round(firstAttemptSuccess / totalTests * 100) : 0
   };
@@ -141,26 +187,94 @@ var FLAKY_PATTERNS = [
   { name: "network", regex: /ECONNREFUSED|network|fetch|axios|request failed|404|500/i, suggestion: "Mocke APIs ou garanta que o backend esteja rodando. Use retry ou intercept." },
   { name: "shared_state", regex: /state|cleanup|beforeEach|afterEach|isolation/i, suggestion: "Garanta beforeEach/afterEach para resetar estado. Evite vari\xE1veis globais compartilhadas." }
 ];
-function detectMobileMappingInvisible(runOutput, framework = "") {
-  const isMobile = /appium|detox/i.test(framework);
-  const hasSelectorError = /element not found|selector|locator|Unable to find|no such element|stale element/i.test(runOutput);
-  return isMobile && hasSelectorError;
+var FAILURE_ANALYSIS_PATTERNS = [
+  {
+    name: "element_not_rendered",
+    regex: /timeout|not found|element not found|no such element|element.*not.*in.*dom|waiting for/i,
+    oQueAconteceu: "O elemento ainda n\xE3o foi renderizado no DOM quando o teste tentou interagir. Pode ser carregamento ass\xEDncrono, lazy load ou anima\xE7\xE3o.",
+    lesson: `Espere o elemento estar dispon\xEDvel ANTES de interagir:
+- Playwright: await element.waitFor({ state: 'attached' }) ou waitForSelector
+- Cypress: cy.get(sel).should('exist') antes de clicar
+- WDIO/Appium: $(sel).waitForDisplayed() ou waitForExist({ timeout: 10000 })
+- Use waits inteligentes: waitForDisplayed, waitForClickable, waitForExist`,
+    learningType: "element_not_rendered"
+  },
+  {
+    name: "element_not_visible",
+    regex: /element.*not.*visible|not visible|is not visible|element is not displayed|hidden|display.*none|off.?screen/i,
+    oQueAconteceu: "O elemento existe no DOM mas n\xE3o est\xE1 vis\xEDvel (display:none, off-screen, opacity:0 ou ainda carregando).",
+    lesson: `Verifique visibilidade antes de interagir:
+- Playwright: waitFor({ state: 'visible' })
+- Cypress: .should('be.visible') antes de click
+- Appium/WDIO: waitForDisplayed() ou isDisplayed()
+- Adicione wait expl\xEDcito: elemento pode estar em anima\xE7\xE3o ou carregando`,
+    learningType: "element_not_visible"
+  },
+  {
+    name: "element_stale",
+    regex: /stale element|stale element reference|element.*no longer attached/i,
+    oQueAconteceu: "O elemento foi encontrado mas a p\xE1gina/DOM mudou antes da intera\xE7\xE3o (elemento ficou obsoleto).",
+    lesson: `Re-localize o elemento antes de cada a\xE7\xE3o:
+- Evite guardar refer\xEAncia: busque novamente antes de clicar
+- Use waits que revalidam: cy.get().first().click() com retry
+- Em listas din\xE2micas: espere estabiliza\xE7\xE3o antes de interagir`,
+    learningType: "element_stale"
+  },
+  {
+    name: "mobile_mapping_invisible",
+    regex: /element not found|selector|Unable to find|no such element/i,
+    oQueAconteceu: "Em mobile: o mapeamento ficou invis\xEDvel ou os seletores n\xE3o est\xE3o estruturados. Pode ser estrutura do c\xF3digo ou seletor incorreto.",
+    lesson: `Em testes mobile (Appium/Detox), SEMPRE:
+- Mapeamento VIS\xCDVEL: const ELEMENTS = { btn: '~id' }; $(ELEMENTS.btn).click()
+- Antes de clicar: $(sel).waitForDisplayed({ timeout: 10000 })
+- Ao final: expect(await $(sel).isDisplayed()).toBe(true) \u2014 valida\xE7\xE3o expl\xEDcita para o usu\xE1rio entender que houve valida\xE7\xE3o`,
+    learningType: "mobile_mapping_invisible",
+    mobileOnly: true
+  },
+  {
+    name: "selector",
+    regex: /selector|locator|element not found|Unable to find/i,
+    oQueAconteceu: "O seletor n\xE3o encontrou o elemento. Pode ser seletor incorreto, mudan\xE7a de UI ou elemento em outro contexto (iframe, shadow DOM).",
+    lesson: "Use seletores est\xE1veis: data-testid, role+name, accessibility-id. Evite classes CSS din\xE2micas. Priorize: data-testid > role > texto vis\xEDvel.",
+    learningType: "selector_fix"
+  },
+  {
+    name: "timing",
+    regex: /timeout|timed out|exceeded|slow/i,
+    oQueAconteceu: "O teste excedeu o tempo de espera. O elemento pode demorar para aparecer ou h\xE1 race condition.",
+    lesson: "Adicione wait expl\xEDcito antes de interagir. Aumente timeout se necess\xE1rio. Use waitForDisplayed/waitForSelector.",
+    learningType: "timing_fix"
+  }
+];
+function inferFailurePattern(runOutput, framework = "") {
+  const output = (runOutput || "").toLowerCase();
+  for (const p of FAILURE_ANALYSIS_PATTERNS) {
+    if (p.mobileOnly && !/appium|detox/i.test(framework)) continue;
+    if (p.regex.test(output)) return p;
+  }
+  return null;
 }
 var MOBILE_MAPPING_LESSON = `Em testes mobile (Appium/Detox), SEMPRE inclua o mapeamento de elementos de forma VIS\xCDVEL e estruturada no c\xF3digo:
 - Use constantes ou Page Object no TOPO do spec: const ELEMENTS = { loginBtn: '~btn_login', ... };
 - No teste: $(ELEMENTS.loginBtn).click();
 - Nunca deixe seletores "invis\xEDveis" (hardcoded inline repetidos). Isso dificulta manuten\xE7\xE3o e causa falhas.`;
-function formatLearnedMessageForUser({ type, fixSummary, framework }) {
-  const base = `**Entendi o erro e apliquei a corre\xE7\xE3o**
+var UNIVERSAL_TEST_PRACTICES = `PR\xC1TICAS OBRIGAT\xD3RIAS em todo teste gerado:
+1. Esperas inteligentes: ANTES de interagir, verifique que o elemento est\xE1 dispon\xEDvel (waitForDisplayed, waitForExist, waitForSelector)
+2. Valida\xE7\xE3o no final: SEMPRE adicione um expect/assert ao final para o usu\xE1rio entender que houve valida\xE7\xE3o (ex: expect(element).toBeVisible() ou cy.get(sel).should('be.visible'))
+3. N\xE3o assuma que o elemento est\xE1 pronto: elemento pode n\xE3o estar renderizado, vis\xEDvel ou dispon\xEDvel \u2014 use waits expl\xEDcitos`;
+function formatLearnedMessageForUser({ pattern, fixSummary, runOutput, framework }) {
+  const p = pattern || (runOutput ? inferFailurePattern(runOutput, framework) : null);
+  const oQueAconteceu = p?.oQueAconteceu || "O teste falhou por um problema de elemento ou timing.";
+  const oQueFiz = fixSummary || (p ? `Apliquei a corre\xE7\xE3o para esse tipo de falha: ${p.name}.` : "Ajustei o c\xF3digo.");
+  return `**Entendi o erro e apliquei a corre\xE7\xE3o**
 
-**O que aconteceu:** O mapeamento de elementos ficou invis\xEDvel \u2014 os seletores n\xE3o foram estruturados de forma expl\xEDcita no teste, o que dificultou a manuten\xE7\xE3o e causou falhas.
+**O que aconteceu:** ${oQueAconteceu}
 
-**O que fiz:** ${fixSummary || "Ajustei o c\xF3digo para usar mapeamento vis\xEDvel (constantes/Page Object no topo do spec)."}
+**O que fiz:** ${oQueFiz}
 
-**O que aprendi:** Salvei esse cen\xE1rio no meu hist\xF3rico. Nas pr\xF3ximas gera\xE7\xF5es de testes mobile, vou sempre incluir o mapeamento de forma vis\xEDvel e organizada, para que isso n\xE3o se repita.
+**O que aprendi:** Salvei esse cen\xE1rio no meu hist\xF3rico. Nas pr\xF3ximas gera\xE7\xF5es, vou aplicar as pr\xE1ticas corretas (waits inteligentes, valida\xE7\xE3o final) desde o in\xEDcio.
 
-Use \`mcp-lab-agent stats\` para ver a evolu\xE7\xE3o dos aprendizados.`;
-  return base;
+Use \`mcp-lab-agent stats\` ou \`get_learning_report\` para ver a evolu\xE7\xE3o dos aprendizados.`;
 }
 function detectFlakyPatterns(runOutput) {
   const detected = [];
@@ -614,7 +728,7 @@ var QA_AGENTS = {
   browser: { desc: "Browser mode: screenshots, network, console", tools: ["web_eval_browser"] },
   reporting: { desc: "Relat\xF3rios e m\xE9tricas", tools: ["create_bug_report", "get_business_metrics"] },
   intelligence: { desc: "An\xE1lise preditiva e insights", tools: ["qa_full_analysis", "qa_health_check", "qa_suggest_next_test", "qa_predict_flaky", "qa_compare_with_industry", "qa_time_travel"] },
-  learning: { desc: "Sistema de aprendizado", tools: ["qa_learning_stats"] },
+  learning: { desc: "Sistema de aprendizado", tools: ["qa_learning_stats", "get_learning_report"] },
   maintenance: { desc: "Linter, deps, an\xE1lise de c\xF3digo", tools: ["run_linter", "install_dependencies"] }
 };
 function getExtensionAndBaseDir(fw, structure) {
@@ -634,16 +748,19 @@ USO:
   mcp-lab-agent --help     # Mostra esta ajuda
 
 COMANDOS CLI:
-  slack-bot                             Inicia o Slack Bot (QA via @mention) - sem precisar clonar o repo
+  slack-bot                             Inicia o Slack Bot (QA via @mention)
+  learning-hub                          Inicia o Learning Hub (API + Dashboard em http://localhost:3847)
   analyze                               An\xE1lise completa: executa, analisa estabilidade, prev\xEA riscos e recomenda a\xE7\xF5es
   auto <descri\xE7\xE3o> [--max-retries N]    Modo aut\xF4nomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
-  stats                                 Mostra estat\xEDsticas de aprendizado (taxa de sucesso, corre\xE7\xF5es, etc.)
+  stats                                 Estat\xEDsticas de aprendizado (taxa de sucesso, corre\xE7\xF5es, etc.)
+  report [--full]                        Relat\xF3rio de evolu\xE7\xE3o e aprendizado (--full = completo com recomenda\xE7\xF5es)
   detect [--json]                       Detecta frameworks e estrutura
   route <tarefa>                        Sugere qual ferramenta usar
   list                                  Lista ferramentas MCP dispon\xEDveis
 
 EXEMPLOS:
-  mcp-lab-agent slack-bot                       # Slack Bot (configure em ~/.cursor/mcp.json)
+  mcp-lab-agent slack-bot                       # Slack Bot
+  mcp-lab-agent learning-hub                   # Learning Hub (API + Dashboard)
   npx mcp-lab-agent slack-bot                   # Usar sem instalar (sem clonar o projeto)
   mcp-lab-agent analyze                         # An\xE1lise completa + recomenda\xE7\xF5es
   mcp-lab-agent auto "login flow" --max-retries 5
@@ -721,6 +838,8 @@ AMBIENTES CORPORATIVOS (APIs bloqueadas):
   }
   if (cmd === "stats") {
     const stats = getMemoryStats();
+    const byType = stats.byLearningType || {};
+    const byTypeLines = Object.entries(byType).filter(([, v]) => v > 0).map(([t, v]) => `  ${t}: ${v}`).join("\n");
     console.log(`
 \u{1F4CA} Estat\xEDsticas de Aprendizado
 
@@ -730,8 +849,47 @@ Corre\xE7\xF5es de seletores: ${stats.selectorFixes}
 Corre\xE7\xF5es de timing: ${stats.timingFixes}
 Testes gerados: ${stats.testsGenerated}
 Taxa de sucesso na 1\xAA tentativa: ${stats.firstAttemptSuccessRate}%
+${byTypeLines ? `
+Por tipo:
+${byTypeLines}` : ""}
 
 ${stats.totalLearnings === 0 ? "\u26A0\uFE0F Ainda n\xE3o h\xE1 aprendizados. Use 'mcp-lab-agent auto <descri\xE7\xE3o>' para gerar testes e aprender com erros." : ""}
+`);
+    return true;
+  }
+  if (cmd === "report") {
+    const memory = loadProjectMemory();
+    const learnings = memory.learnings || [];
+    const stats = getMemoryStats();
+    const byType = stats.byLearningType || {};
+    const format = process.argv.includes("--full") ? "full" : "summary";
+    const recommendations = [];
+    if (byType.element_not_rendered > 0 || byType.element_not_visible > 0) {
+      recommendations.push("Use waits expl\xEDcitos (waitForSelector, waitForDisplayed) ANTES de interagir com elementos.");
+    }
+    if (byType.timing_fix > 0 || byType.element_stale > 0) {
+      recommendations.push("Aumente timeouts e use re-localiza\xE7\xE3o de elementos em listas din\xE2micas.");
+    }
+    if (byType.selector_fix > 0 || byType.mobile_mapping_invisible > 0) {
+      recommendations.push("Priorize data-testid, role e seletores est\xE1veis; em mobile, use mapeamento vis\xEDvel no topo do spec.");
+    }
+    if (stats.firstAttemptSuccessRate < 70 && stats.testsGenerated > 0) {
+      recommendations.push("Aplique waits inteligentes + assert final em cada teste gerado.");
+    }
+    const byTypeStr = Object.entries(byType).filter(([, v]) => v > 0).map(([t, v]) => `  - ${t}: ${v}`).join("\n");
+    console.log(`
+\u{1F4C8} Relat\xF3rio de Evolu\xE7\xE3o e Aprendizado
+
+Resumo por tipo:
+${byTypeStr || "  Nenhum aprendizado por tipo ainda"}
+
+M\xE9tricas gerais:
+  Total de aprendizados: ${stats.totalLearnings}
+  Taxa de sucesso (1\xAA tentativa): ${stats.firstAttemptSuccessRate}%
+  Testes gerados: ${stats.testsGenerated}
+${format === "full" && recommendations.length > 0 ? `
+Recomenda\xE7\xF5es para aprimorar o c\xF3digo:
+${recommendations.map((r) => `  \u2022 ${r}`).join("\n")}` : ""}
 `);
     return true;
   }
@@ -1153,7 +1311,7 @@ var QA_AGENTS2 = {
   analysis: { tools: ["analyze_failures", "por_que_falhou", "suggest_fix", "suggest_selector_fix"], desc: "An\xE1lise de falhas e sugest\xF5es" },
   browser: { tools: ["web_eval_browser"], desc: "Avalia\xE7\xE3o em browser real (screenshots, network, console)" },
   reporting: { tools: ["create_bug_report", "get_business_metrics"], desc: "Relat\xF3rios e m\xE9tricas" },
-  learning: { tools: ["qa_learning_stats", "qa_time_travel"], desc: "Estat\xEDsticas de aprendizado e evolu\xE7\xE3o" },
+  learning: { tools: ["qa_learning_stats", "get_learning_report", "qa_time_travel"], desc: "Estat\xEDsticas de aprendizado e evolu\xE7\xE3o" },
   maintenance: { tools: ["run_linter", "install_dependencies", "analyze_file_methods"], desc: "Manuten\xE7\xE3o e an\xE1lise de c\xF3digo" }
 };
 server.registerTool(
@@ -1519,10 +1677,15 @@ O c\xF3digo de refer\xEAncia pode estar em QUALQUER framework (Cypress, Robot, P
 - Mantenha a MESMA l\xF3gica e fluxo de teste
 - Traduza seletores, comandos e asser\xE7\xF5es para ${fw}
 - Use Page Objects se o projeto j\xE1 usa
-- Retorne SOMENTE o c\xF3digo, sem markdown${fw === "appium" || fw === "detox" ? `
+- Retorne SOMENTE o c\xF3digo, sem markdown
 
+${UNIVERSAL_TEST_PRACTICES}
+${fw === "appium" || fw === "detox" ? `
 IMPORTANTE: ${MOBILE_MAPPING_LESSON}` : ""}` : `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
 Framework: ${fw}
+
+${UNIVERSAL_TEST_PRACTICES}
+
 Regras:
 - Cypress: cy.request(), cy.visit(), cy.get()
 - Playwright: test(), test.describe(), page.goto(), page.locator()
@@ -3178,6 +3341,70 @@ ${stats.totalLearnings === 0 ? "\u26A0\uFE0F Ainda n\xE3o h\xE1 aprendizados. Us
   }
 );
 server.registerTool(
+  "get_learning_report",
+  {
+    title: "Relat\xF3rio de evolu\xE7\xE3o e aprendizado",
+    description: "Gera relat\xF3rio de evolu\xE7\xE3o dos aprendizados: resumo por tipo, evolu\xE7\xE3o no tempo e recomenda\xE7\xF5es para aprimorar o c\xF3digo.",
+    inputSchema: z.object({
+      format: z.enum(["summary", "full"]).optional().describe("summary = resumo executivo, full = relat\xF3rio completo com recomenda\xE7\xF5es. Default: summary")
+    }),
+    outputSchema: z.object({
+      summary: z.string(),
+      byType: z.record(z.number()),
+      evolution: z.array(z.object({ date: z.string(), type: z.string(), framework: z.string() })).optional(),
+      recommendations: z.array(z.string()).optional()
+    })
+  },
+  async ({ format = "summary" }) => {
+    const memory = loadProjectMemory();
+    const learnings = memory.learnings || [];
+    const stats = getMemoryStats();
+    const byType = stats.byLearningType || {};
+    const evolution = format === "full" && learnings.length > 0 ? learnings.slice(-30).map((l) => ({
+      date: (l.timestamp || "").slice(0, 10),
+      type: l.type || "unknown",
+      framework: l.framework || "-"
+    })) : [];
+    const recommendations = [];
+    if (byType.element_not_rendered > 0 || byType.element_not_visible > 0) {
+      recommendations.push("Use waits expl\xEDcitos (waitForSelector, waitForDisplayed) ANTES de interagir com elementos.");
+    }
+    if (byType.timing_fix > 0 || byType.element_stale > 0) {
+      recommendations.push("Aumente timeouts e use re-localiza\xE7\xE3o de elementos em listas din\xE2micas.");
+    }
+    if (byType.selector_fix > 0 || byType.mobile_mapping_invisible > 0) {
+      recommendations.push("Priorize data-testid, role e seletores est\xE1veis; em mobile, use mapeamento vis\xEDvel no topo do spec.");
+    }
+    if (stats.firstAttemptSuccessRate < 70 && stats.testsGenerated > 0) {
+      recommendations.push("Aplique UNIVERSAL_TEST_PRACTICES em cada teste gerado: waits inteligentes + assert final.");
+    }
+    if (recommendations.length === 0 && learnings.length > 0) {
+      recommendations.push("Continue aplicando as pr\xE1ticas aprendidas em novos testes.");
+    }
+    const summary = `\u{1F4C8} **Relat\xF3rio de Evolu\xE7\xE3o e Aprendizado**
+
+**Resumo por tipo:**
+${Object.entries(byType).filter(([, v]) => v > 0).map(([t, v]) => `- ${t}: ${v}`).join("\n") || "- Nenhum aprendizado por tipo ainda"}
+
+**M\xE9tricas gerais:**
+- Total de aprendizados: ${stats.totalLearnings}
+- Taxa de sucesso (1\xAA tentativa): ${stats.firstAttemptSuccessRate}%
+- Testes gerados: ${stats.testsGenerated}
+
+${format === "full" && recommendations.length > 0 ? `**Recomenda\xE7\xF5es para aprimorar o c\xF3digo:**
+${recommendations.map((r) => `\u2022 ${r}`).join("\n")}` : ""}`;
+    return {
+      content: [{ type: "text", text: summary }],
+      structuredContent: {
+        summary: summary.trim(),
+        byType,
+        evolution: format === "full" ? evolution : void 0,
+        recommendations: format === "full" ? recommendations : void 0
+      }
+    };
+  }
+);
+server.registerTool(
   "qa_compare_with_industry",
   {
     title: "Comparar com padr\xF5es da ind\xFAstria",
@@ -3469,15 +3696,16 @@ server.registerTool(
     let testFilePath = null;
     let testContent = null;
     let attempt = 0;
-    let appliedMobileMappingFix = false;
+    let appliedLearningFix = false;
     learnings.push({ attempt: 0, action: "detect_project", result: `${structure.testFrameworks.length} framework(s)` });
     for (attempt = 1; attempt <= maxRetries; attempt++) {
       learnings.push({ attempt, action: "generate_tests", result: "gerando..." });
       const { provider, apiKey, baseUrl, model } = llm;
-      const memoryHints = memory.learnings?.filter((l) => l.success || l.type === "mobile_mapping_invisible").slice(-10).map((l) => l.fix).join("\n") || "";
+      const memoryHints = memory.learnings?.filter((l) => l.fix).slice(-10).map((l) => l.fix).join("\n") || "";
       const systemPrompt = `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
-${memoryHints ? `
-Aprendizados anteriores (use como refer\xEAncia):
+${UNIVERSAL_TEST_PRACTICES}
+
+${memoryHints ? `Aprendizados anteriores (use como refer\xEAncia):
 ${memoryHints.slice(0, 1e3)}` : ""}
 Retorne SOMENTE o c\xF3digo, sem markdown.`;
       const userPrompt = `Contexto:
@@ -3545,9 +3773,9 @@ Framework: ${fw}`;
           saveProjectMemory({
             learnings: [{ type: "test_generated", request, framework: fw, success: true, passedFirstTime: attempt === 1, attempts: attempt, timestamp: (/* @__PURE__ */ new Date()).toISOString() }]
           });
-          const learnedAppendix2 = appliedMobileMappingFix ? `
+          const learnedAppendix2 = appliedLearningFix ? `
 
-${formatLearnedMessageForUser({ fixSummary: "Ajustei o mapeamento para ficar vis\xEDvel no c\xF3digo." })}` : "";
+${formatLearnedMessageForUser({ runOutput: runResult?.output, fixSummary: "Ajustei o c\xF3digo aplicando waits e valida\xE7\xE3o correta.", framework: fw })}` : "";
           return {
             content: [{ type: "text", text: `\u2705 Teste passou na tentativa ${attempt}!
 
@@ -3563,9 +3791,9 @@ Aprendizados salvos.${learnedAppendix2}` }],
           saveProjectMemory({
             learnings: [{ type: "test_generated", request, framework: fw, success: false, attempts: attempt, timestamp: (/* @__PURE__ */ new Date()).toISOString() }]
           });
-          const learnedAppendix2 = appliedMobileMappingFix ? `
+          const learnedAppendix2 = appliedLearningFix ? `
 
-${formatLearnedMessageForUser({ fixSummary: "Tentei corrigir o mapeamento para ficar vis\xEDvel. Nas pr\xF3ximas execu\xE7\xF5es, usarei esse aprendizado desde o in\xEDcio." })}` : "";
+${formatLearnedMessageForUser({ runOutput: runResult.output, framework: fw, fixSummary: "Tentei corrigir. Nas pr\xF3ximas execu\xE7\xF5es usarei esse aprendizado desde o in\xEDcio." })}` : "";
           return {
             content: [{ type: "text", text: `\u274C Teste falhou ap\xF3s ${attempt} tentativa(s).
 
@@ -3588,20 +3816,21 @@ ${runResult.output.slice(0, 500)}${learnedAppendix2}` }],
         fs5.writeFileSync(testFilePath, testContent, "utf8");
         learnings.push({ attempt, action: "apply_fix", result: "corre\xE7\xE3o aplicada" });
         if (flakyAnalysis.isLikelyFlaky) {
-          const isMobileMapping = detectMobileMappingInvisible(runResult.output, fw);
-          const learningType = isMobileMapping ? "mobile_mapping_invisible" : flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix";
-          const learningFix = isMobileMapping ? MOBILE_MAPPING_LESSON : fixedCode.slice(0, 500);
+          const inferredPattern = inferFailurePattern(runResult.output, fw);
+          const learningType = inferredPattern?.learningType || (flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix");
+          const learningFix = inferredPattern?.lesson || fixedCode.slice(0, 500);
           saveProjectMemory({
             learnings: [{
               type: learningType,
               request,
               framework: fw,
               fix: learningFix,
+              pattern: inferredPattern?.name,
               success: false,
               timestamp: (/* @__PURE__ */ new Date()).toISOString()
             }]
           });
-          if (isMobileMapping) appliedMobileMappingFix = true;
+          appliedLearningFix = true;
         }
       } catch (err) {
         learnings.push({ attempt, action: "error", result: err.message });
@@ -3611,9 +3840,9 @@ ${runResult.output.slice(0, 500)}${learnedAppendix2}` }],
         };
       }
     }
-    const learnedAppendix = appliedMobileMappingFix ? `
+    const learnedAppendix = appliedLearningFix ? `
 
-${formatLearnedMessageForUser({ fixSummary: "Tentei corrigir o mapeamento para ficar vis\xEDvel. Nas pr\xF3ximas execu\xE7\xF5es, usarei esse aprendizado desde o in\xEDcio." })}` : "";
+${formatLearnedMessageForUser({ fixSummary: "Tentei corrigir. Nas pr\xF3ximas execu\xE7\xF5es usarei esse aprendizado desde o in\xEDcio." })}` : "";
     return {
       content: [{ type: "text", text: `\u274C Falhou ap\xF3s ${maxRetries} tentativa(s).${learnedAppendix}` }],
       structuredContent: { ok: false, testFilePath, attempts: maxRetries, finalStatus: "max_retries", learnings }
@@ -3668,6 +3897,13 @@ test.describe('${type.toUpperCase()} Test', () => {
 );
 async function main() {
   const cmd = process.argv[2];
+  if (cmd === "learning-hub") {
+    const __dirname2 = path5.dirname(fileURLToPath(import.meta.url));
+    const hubPath = path5.join(__dirname2, "..", "learning-hub", "src", "server.js");
+    const hubUrl2 = pathToFileURL(hubPath).href;
+    await import(hubUrl2);
+    return;
+  }
   if (cmd === "slack-bot") {
     const __dirname2 = path5.dirname(fileURLToPath(import.meta.url));
     const slackBotPath = path5.join(__dirname2, "..", "slack-bot", "src", "index.js");

@@ -84,6 +84,21 @@ Configure `~/.cursor/mcp.json`. **Socket Mode** (recomendado para PC corporativo
 
 Para HTTP (ngrok): use `signingSecret` em vez de `appToken`. Ver [slack-bot/README.md](slack-bot/README.md) e [TROUBLESHOOTING.md](slack-bot/TROUBLESHOOTING.md).
 
+### Learning Hub (cérebro central)
+
+```bash
+npx mcp-lab-agent learning-hub
+```
+
+API + Dashboard em http://localhost:3847. Para acumular aprendizados entre projetos, configure no `.env`:
+
+```env
+LEARNING_HUB_URL=http://localhost:3847
+LEARNING_HUB_PROJECT_ID=meu-projeto
+```
+
+O agente enviará learnings automaticamente. Ver [learning-hub/README.md](learning-hub/README.md).
+
 ### Integração com IDE (Cursor/Cline/Windsurf)
 
 **1. Configure o MCP** (`~/.cursor/mcp.json`):
@@ -357,7 +372,8 @@ npm install playwright
 ## Documentação
 
 - **[CHANGELOG.md](CHANGELOG.md)** — Histórico de versões
-- **[slack-bot/README.md](slack-bot/README.md)** — Configuração do Slack Bot (Socket Mode, HTTP, ambientes corporativos)
+- **[slack-bot/README.md](slack-bot/README.md)** — Configuração do Slack Bot (Socket Mode, HTTP)
+- **[learning-hub/README.md](learning-hub/README.md)** — Learning Hub (API centralizada, Dashboard)
 
 ---
 
