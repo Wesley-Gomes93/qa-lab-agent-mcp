@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.6] - 2026-03-19
+
+### Slack Bot — Credenciais e documentação
+
+- **Documentação alinhada** à [documentação oficial do Slack](https://docs.slack.dev/app-management/quickstart-app-settings)
+- **CREDENTIALS.md** — referência rápida: credencial → onde obter em api.slack.com
+- **.env.example** — comentários com caminho exato de cada variável (OAuth & Permissions, App-Level Tokens, Signing Secret)
+- **check-config.js** — link para CREDENTIALS.md em erros; suporte a `QA_LAB_MCP_CONFIG`
+- **TROUBLESHOOTING** — fluxo completo, lembretes de Reinstall to Workspace, paths exatos
+- **@slack/bolt** em `dependencies` (antes optionalDependencies) — garante instalação ao rodar `slack-bot`
+- Script `slack-bot:check` no package.json raiz
+
 ## [2.1.5] - 2026-03-18
 
 ### Learning Hub (cérebro central)

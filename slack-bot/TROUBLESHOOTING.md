@@ -11,20 +11,21 @@
 
 ### 2. Configuração no Slack (api.slack.com)
 
+Seguindo a [documentação oficial](https://docs.slack.dev/app-management/quickstart-app-settings):
+
 #### Se usa **Socket Mode** (PC corporativo, sem ngrok):
 
-1. **Socket Mode** → Enable
-2. **App-Level Tokens** → Generate → scope: `connections:write` → copie (`xapp-...`)
-3. **Event Subscriptions** → Subscribe to bot events → adicione: `app_mention`
-4. **OAuth & Permissions** → Scopes do Bot: `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`
-5. **Install to Workspace** (ou Reinstall) se alterou scopes
+1. **Socket Mode** → Enable Socket Mode → ON
+2. **Basic Information** → App-Level Tokens → Generate → scope: `connections:write` → copie (`xapp-...`)
+3. **Event Subscriptions** → Enable Events → Subscribe to bot events → `app_mention`
+4. **OAuth & Permissions** → Bot Token Scopes: `app_mentions:read`, `chat:write`, `channels:read`, `channels:history`
+5. **Install App** → **Reinstall to Workspace** (obrigatório após alterar scopes ou eventos)
 
 #### Se usa **HTTP** (ngrok):
 
-1. **Event Subscriptions** → Enable
-2. Request URL: `https://SEU_NGROK.ngrok.io/slack/events`
-3. Subscribe to bot events: `app_mention`
-4. **Signing Secret** em Basic Information
+1. **Event Subscriptions** → Enable Events → Request URL: `https://SEU_NGROK.ngrok.io/slack/events`
+2. Subscribe to bot events: `app_mention`
+3. **Basic Information** → App Credentials → Signing Secret (Show)
 
 ### 3. Config correta no mcp.json
 
@@ -42,8 +43,8 @@ O `~/.cursor/mcp.json` precisa ter a seção `qa-lab-agent.slack`:
 }
 ```
 
-- `botToken` — OAuth & Permissions → Bot User OAuth Token (começa com `xoxb-`)
-- `appToken` — Basic Information → App-Level Tokens (começa com `xapp-`) — só para Socket Mode
+- `botToken` — OAuth & Permissions → OAuth Tokens → Bot User OAuth Token (começa com `xoxb-`)
+- `appToken` — Basic Information → App-Level Tokens (scope `connections:write`, começa com `xapp-`) — só para Socket Mode
 - `useLocal: true` — analisa o projeto local (pasta atual) em vez de clonar um repo
 
 ### 4. Rodar o diagnóstico

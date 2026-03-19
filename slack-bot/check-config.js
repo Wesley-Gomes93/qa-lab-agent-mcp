@@ -9,20 +9,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Carrega .env de múltiplos locais (pessoal, corporativo, npx, etc.)
+// check-config.js fica em slack-bot/, então __dirname já é a pasta slack-bot
+const SLACK_BOT_DIR = __dirname;
+// Carrega .env na mesma ordem do config.js (QA_LAB_ENV override, cwd, slack-bot)
 const envPaths = [
-  path.join(__dirname, ".env"),
-  path.join(process.cwd(), ".env"),
   process.env.QA_LAB_ENV,
+  path.join(process.cwd(), ".env"),
+  path.join(SLACK_BOT_DIR, ".env"),
 ].filter(Boolean);
 for (const p of envPaths) {
-  if (existsSync(p)) {
+  if (p && existsSync(p)) {
     config({ path: p });
     break;
   }
 }
-const home = process.env.HOME || process.env.USERPROFILE;
-const mcpPath = home ? path.join(home, ".cursor", "mcp.json") : null;
+function getMcpJsonPath() {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  return home ? path.join(home, ".cursor", "mcp.json") : null;
+}
+const mcpPath = process.env.QA_LAB_MCP_CONFIG || getMcpJsonPath();
 
 console.log("\n🔧 QA Lab Slack Bot - Diagnóstico\n");
 console.log("1. Origens de config (mcp.json ou .env):");
@@ -52,7 +57,7 @@ if (!token) {
   console.log("   ❌ Ausente. Adicione 'botToken' ou 'SLACK_BOT_TOKEN'");
 } else if (!token.startsWith("xoxb-")) {
   console.log("   ⚠️  Deve começar com 'xoxb-'. Você usou o Client Secret?");
-  console.log("   Use: OAuth & Permissions → Bot User OAuth Token (depois de Install to Workspace)");
+  console.log("   Onde: OAuth & Permissions → OAuth Tokens → Bot User OAuth Token");
 } else {
   console.log("   ✅ OK (xoxb-...)");
 }
@@ -78,10 +83,10 @@ if (appToken) {
   if (appToken.startsWith("xapp-")) {
     console.log("   ✅ OK (xapp-...) — bot funcionará sem URL pública");
   } else {
-    console.log("   ⚠️  Deve começar com 'xapp-'. Onde: Basic Information → App-Level Tokens");
+    console.log("   ⚠️  Deve começar com 'xapp-'. Onde: Basic Information → App-Level Tokens (scope: connections:write)");
   }
 } else {
-  console.log("   ⊘ Não configurado. Se estiver em PC corporativo, adicione para Socket Mode.");
+  console.log("   ⊘ Não configurado. Onde: Basic Information → App-Level Tokens (scope: connections:write)");
 }
 
 console.log("\n5. Resumo do modo:");
@@ -107,5 +112,6 @@ if (token && token.startsWith("xoxb-") && (useSocketMode || secret)) {
   console.log("\n❌ Corrija os itens acima.");
   if (!token) console.log("   Dica: botToken ou SLACK_BOT_TOKEN obrigatório.");
   if (!useSocketMode && !secret) console.log("   Dica: use appToken (Socket) OU signingSecret (HTTP).");
+  console.log("   Onde obter: slack-bot/CREDENTIALS.md | https://docs.slack.dev/app-management/quickstart-app-settings");
 }
 console.log("");

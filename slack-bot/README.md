@@ -18,59 +18,84 @@ npx mcp-lab-agent slack-bot
 
 Não precisa baixar o repo — o comando instala e executa o bot. Configure `~/.cursor/mcp.json` (ver seção abaixo).
 
-## Configuração (3 passos)
+## Configuração
 
-### 1. Crie o bot no Slack
+Seguindo [Creating an app from app settings](https://docs.slack.dev/app-management/quickstart-app-settings):
+
+### 1. Criar o app no Slack
 
 1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
-2. **OAuth & Permissions** → Scopes: `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`
-3. **Install to Workspace** → copie o **Bot User OAuth Token** (`xoxb-...`)
+2. **App Name** e **Workspace** → **Create App**
 
-**Para PC corporativo (sem URL pública):**
-- **Socket Mode** → Enable
-- **App-Level Tokens** → Generate → scope: `connections:write` → copie (`xapp-...`)
-- **Event Subscriptions** → Subscribe to bot events → adicione `app_mention`
+### 2. Solicitar scopes (OAuth & Permissions)
 
-**Para ambiente com URL pública (ngrok):**
-- **Event Subscriptions** → Enable → URL: `https://SEU_DOMINIO/slack/events` → event: `app_mention`
-- **Basic Information** → Signing Secret
+1. **OAuth & Permissions** → **Scopes** → **Bot Token Scopes** → **Add an OAuth Scope**
+2. Adicione:
+   - `app_mentions:read` — necessário para o evento `app_mention`
+   - `chat:write` — enviar mensagens
+   - `channels:read` — listar canais
+   - `channels:history` — ler histórico (para análise)
 
-### 2. Configure tokens
+### 3. Instalar e autorizar o app
 
-**Socket Mode (recomendado para PC da empresa — funciona atrás de firewall):**
+1. **OAuth & Permissions** → **Install to Workspace** → **Allow**
+2. Copie o **Bot User OAuth Token** (`xoxb-...`) em **OAuth Tokens**
+3. No canal desejado, digite: `/invite @NomeDoBot` — o bot precisa estar no canal para receber menções
 
-No `~/.cursor/mcp.json`:
+### 4. Configurar eventos (Event Subscriptions)
+
+1. **Event Subscriptions** → **Enable Events** → ON
+2. **Subscribe to bot events** → **Add Bot User Event** → `app_mention`
+3. Se alterou scopes/eventos: **Install App** → **Reinstall to Workspace**
+
+### 5. Escolher modo: Socket ou HTTP
+
+**A) Socket Mode** (recomendado — PC corporativo, sem URL pública):
+
+1. **Socket Mode** → **Enable Socket Mode** → ON
+2. **Basic Information** → **App-Level Tokens** → **Generate** → scope: `connections:write`
+3. Copie o token (`xapp-...`)
+
+**B) HTTP** (ngrok):
+
+1. **Event Subscriptions** → **Request URL**: `https://SEU_DOMINIO/slack/events`
+2. **Basic Information** → **App Credentials** → **Signing Secret** (Show)
+
+### 6. Configurar credenciais localmente
+
+**Socket Mode** — em `~/.cursor/mcp.json` ou `.env`:
 
 ```json
 {
   "qa-lab-agent": {
     "slack": {
-      "botToken": "xoxb-seu-bot-token",
-      "appToken": "xapp-seu-app-token",
+      "botToken": "xoxb-...",
+      "appToken": "xapp-...",
       "useLocal": true
     }
   }
 }
 ```
 
-Também aceita: `slack_app_token` em vez de `appToken`.
+| Credencial   | Onde obter em api.slack.com |
+|-------------|-----------------------------|
+| `botToken`  | OAuth & Permissions → OAuth Tokens → Bot User OAuth Token |
+| `appToken`  | Basic Information → App-Level Tokens (scope: connections:write) |
 
-**HTTP (ngrok):**
+> Detalhes: [CREDENTIALS.md](./CREDENTIALS.md)
 
-```json
-{
-  "qa-lab-agent": {
-    "slack": {
-      "botToken": "xoxb-seu-token",
-      "signingSecret": "seu-secret"
-    }
-  }
-}
-```
+**HTTP** — para ngrok:
 
-**Via `.env`:** `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` (Socket) ou `SLACK_SIGNING_SECRET` (HTTP). O `.env` pode ficar em `slack-bot/` ou na pasta atual (cwd) — funciona em ambos.
+| Credencial      | Onde obter em api.slack.com |
+|-----------------|-----------------------------|
+| `botToken`      | OAuth & Permissions → OAuth Tokens → Bot User OAuth Token |
+| `signingSecret` | Basic Information → App Credentials → Signing Secret |
 
-### 3. Configure o repositório
+**Via `.env`:** `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` (Socket) ou `SLACK_SIGNING_SECRET` (HTTP). O `.env` pode ficar em `slack-bot/` ou na pasta atual.
+
+> **Importante:** Mantenha as credenciais em segredo. Use variáveis de ambiente ou `mcp.json` (fora do versionamento).
+
+### 7. Configure o repositório
 
 **Opção A** — No `qa-lab-agent.config.json` (raiz do projeto):
 

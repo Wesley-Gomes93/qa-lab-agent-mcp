@@ -1,6 +1,6 @@
 {
   "name": "mcp-lab-agent",
-  "version": "2.1.4",
+  "version": "2.1.6",
   "description": "Sistema de Inteligência em Qualidade de Software: executa, analisa, prevê, recomenda e aprende. Memória local + Learning Hub.",
   "type": "module",
   "main": "dist/index.js",
@@ -18,6 +18,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "slack-bot": "node slack-bot/src/index.js",
+    "slack-bot:check": "node slack-bot/check-config.js",
     "learning-hub": "node learning-hub/src/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -44,7 +45,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Wesley-Gomes93/mcp-lab-agent"
+    "url": "git+https://github.com/Wesley-Gomes93/mcp-lab-agent.git"
   },
   "author": "Wesley Gomes",
   "license": "MIT",
@@ -53,12 +54,12 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@slack/bolt": "^3.21.0",
     "dotenv": "^16.4.5",
     "zod": "^3.25.0"
   },
   "optionalDependencies": {
-    "playwright": "^1.49.0",
-    "@slack/bolt": "^3.21.0"
+    "playwright": "^1.49.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",

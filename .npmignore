@@ -1,0 +1,12 @@
+# Nunca publicar credenciais
+.env
+**/.env
+slack-bot/.env
+
+# Desenvolvimento e testes
+node_modules
+test/
+coverage/
+test-results/
+*.log
+.DS_Store

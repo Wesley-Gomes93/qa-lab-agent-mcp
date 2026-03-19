@@ -112,7 +112,7 @@ Use no chat: *"Detecte a estrutura do meu projeto"*, *"Gere teste para login"*, 
 npx mcp-lab-agent slack-bot
 ```
 
-Funciona em ambiente corporativo (Socket Mode, sem URL pública). Configure `botToken` e `appToken` em `~/.cursor/mcp.json`. Detalhes: [slack-bot/README.md](slack-bot/README.md).
+Funciona em ambiente corporativo (Socket Mode, sem URL pública). Configure `botToken` e `appToken` em `~/.cursor/mcp.json`. Onde obter: [slack-bot/CREDENTIALS.md](slack-bot/CREDENTIALS.md). Detalhes: [slack-bot/README.md](slack-bot/README.md).
 
 ### Learning Hub — Inteligência centralizada
 
