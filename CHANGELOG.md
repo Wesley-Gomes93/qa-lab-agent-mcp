@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.1.9] - 2026-03-19
+
+### run_tests: device e auto-fix de seletor
+
+- **Detecção de device** — `detectDeviceConfig()` lê de `qa-lab-agent.config.json`, `wdio.conf.js`, `.detoxrc.js` ou env (DETOX_CONFIGURATION, APPIUM_UDID)
+- **run_tests** — Novos parâmetros: `device` (device/configuration para mobile), `autoFixSelector` (default: true para mobile quando spec informado)
+- **Fluxo completo** — Ao rodar teste X: detecta device, executa, e se falhar por seletor aplica correção via LLM e tenta novamente
+- **Detox** — `--configuration` adicionado aos args quando device/config detectado
+- **Appium** — Env APPIUM_UDID/APPIUM_DEVICE_NAME aplicados quando configurado
+
+## [2.1.8] - 2026-03-19
+
+### Comando flaky-report
+
+- **mcp-lab-agent flaky-report** — Detecta testes flaky rodando a suite N vezes (default: 3)
+- Opções: `--runs N`, `--spec FILE`, `--output FILE`
+- Identifica intermitência (passou às vezes, falhou às vezes) e causa provável via `detectFlakyPatterns`
+- Relatório em Markdown com sugestões (timing, selector, network, etc.)
+
+## [2.1.7] - 2026-03-19
+
+### Top 3 Problemas de QA — Foco e melhorias
+
+**Posicionamento:** *Assistente de teste que aprende com falhas*
+
+- **docs/TOP3_QA_PROBLEMAS_E_ROADMAP.md** — Top 3 problemas validados no mercado: (1) Testes flaky, (2) "Por que falhou?", (3) Manutenção de seletores. Roadmap de melhorias prioritárias.
+- **Resumo em 1 frase** — `por_que_falhou` e `generateFailureExplanation` agora exibem resumo executivo no topo: "Falhou porque X. Solução: Y."
+- **oneLineFailureSummary** — Nova função em flaky-detection.js para gerar resumo sem LLM (fallback quando padrão detectado).
+- **run_tests + explainOnFailure** — Quando `explainOnFailure: true` e testes falham, gera automaticamente explicação completa com resumo em 1 frase.
+- **generateFailureExplanation** — Corrigido: função local em index.js que chama LLM e retorna `{ ok, structuredContent }` (antes importava de tool-helpers que retornava apenas prompt).
+- **README** — Nova mensagem: "Assistente de teste que aprende com falhas. Reduz tempo de debug, elimina flaky e mantém seletores estáveis."
+
 ## [2.1.6] - 2026-03-19
 
 ### Slack Bot — Credenciais e documentação

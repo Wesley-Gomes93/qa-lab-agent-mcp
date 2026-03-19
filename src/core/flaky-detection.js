@@ -70,6 +70,18 @@ export const FAILURE_ANALYSIS_PATTERNS = [
   },
 ];
 
+/** Gera resumo em 1 frase para o usuário (Top 3: "por que falhou?"). */
+export function oneLineFailureSummary(runOutput, framework = "", oQueAconteceu = "", sugestaoCorrecao = "") {
+  const p = inferFailurePattern(runOutput, framework);
+  const causa = oQueAconteceu || p?.oQueAconteceu || "erro desconhecido";
+  const solucao = sugestaoCorrecao || (p ? p.lesson.split("\n")[0].replace(/^-\s*/, "") : "");
+  const tipo = p?.name || "geral";
+  if (solucao) {
+    return `Falhou porque ${causa.slice(0, 80)}${causa.length > 80 ? "…" : ""} (${tipo}). Solução: ${solucao.slice(0, 100)}${solucao.length > 100 ? "…" : ""}`;
+  }
+  return `Falhou porque ${causa.slice(0, 120)}${causa.length > 120 ? "…" : ""} (${tipo}).`;
+}
+
 /** Detecta qual padrão de falha melhor se aplica. Retorna o primeiro que bater. */
 export function inferFailurePattern(runOutput, framework = "") {
   const output = (runOutput || "").toLowerCase();
@@ -86,10 +98,17 @@ export function detectMobileMappingInvisible(runOutput, framework = "") {
   return p?.name === "mobile_mapping_invisible" || (p?.name === "selector" && /appium|detox/i.test(framework));
 }
 
+/** Hierarquia única e inovadora de seletores mobile: id → XPath relacional → resource-id. */
+export const MOBILE_SELECTOR_HIERARCHY = `HIERARQUIA DE SELETORES MOBILE (única e inovadora):
+1. id: ~accessibility-id, testID — prioridade máxima, semântico e estável
+2. XPath relacional: âncora estável + eixos + TIPO ESPECÍFICO (android.widget.Button, XCUIElementTypeButton). NUNCA use * — quebra por timing e múltiplos matches. Ex: //android.widget.LinearLayout[@resource-id='login_form']/descendant::android.widget.Button[@text='Entrar']. Evite XPath por índice (//Button[3])
+3. resource-id: id=com.app:id/btn — fallback`;
+
 export const MOBILE_MAPPING_LESSON = `Em testes mobile (Appium/Detox), SEMPRE inclua o mapeamento de elementos de forma VISÍVEL e estruturada no código:
 - Use constantes ou Page Object no TOPO do spec: const ELEMENTS = { loginBtn: '~btn_login', ... };
 - No teste: $(ELEMENTS.loginBtn).click();
-- Nunca deixe seletores "invisíveis" (hardcoded inline repetidos). Isso dificulta manutenção e causa falhas.`;
+- Nunca deixe seletores "invisíveis" (hardcoded inline repetidos). Isso dificulta manutenção e causa falhas.
+- Hierarquia: id > XPath relacional (âncora + eixos + tipo específico: android.widget.Button) > resource-id. Evite * e índice.`;
 
 /** Regras universais para TODOS os testes gerados. */
 export const UNIVERSAL_TEST_PRACTICES = `PRÁTICAS OBRIGATÓRIAS em todo teste gerado:

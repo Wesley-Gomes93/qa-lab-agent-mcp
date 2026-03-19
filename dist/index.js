@@ -246,6 +246,16 @@ var FAILURE_ANALYSIS_PATTERNS = [
     learningType: "timing_fix"
   }
 ];
+function oneLineFailureSummary(runOutput, framework = "", oQueAconteceu = "", sugestaoCorrecao = "") {
+  const p = inferFailurePattern(runOutput, framework);
+  const causa = oQueAconteceu || p?.oQueAconteceu || "erro desconhecido";
+  const solucao = sugestaoCorrecao || (p ? p.lesson.split("\n")[0].replace(/^-\s*/, "") : "");
+  const tipo = p?.name || "geral";
+  if (solucao) {
+    return `Falhou porque ${causa.slice(0, 80)}${causa.length > 80 ? "\u2026" : ""} (${tipo}). Solu\xE7\xE3o: ${solucao.slice(0, 100)}${solucao.length > 100 ? "\u2026" : ""}`;
+  }
+  return `Falhou porque ${causa.slice(0, 120)}${causa.length > 120 ? "\u2026" : ""} (${tipo}).`;
+}
 function inferFailurePattern(runOutput, framework = "") {
   const output = (runOutput || "").toLowerCase();
   for (const p of FAILURE_ANALYSIS_PATTERNS) {
@@ -254,10 +264,15 @@ function inferFailurePattern(runOutput, framework = "") {
   }
   return null;
 }
+var MOBILE_SELECTOR_HIERARCHY = `HIERARQUIA DE SELETORES MOBILE (\xFAnica e inovadora):
+1. id: ~accessibility-id, testID \u2014 prioridade m\xE1xima, sem\xE2ntico e est\xE1vel
+2. XPath relacional: \xE2ncora est\xE1vel + eixos + TIPO ESPEC\xCDFICO (android.widget.Button, XCUIElementTypeButton). NUNCA use * \u2014 quebra por timing e m\xFAltiplos matches. Ex: //android.widget.LinearLayout[@resource-id='login_form']/descendant::android.widget.Button[@text='Entrar']. Evite XPath por \xEDndice (//Button[3])
+3. resource-id: id=com.app:id/btn \u2014 fallback`;
 var MOBILE_MAPPING_LESSON = `Em testes mobile (Appium/Detox), SEMPRE inclua o mapeamento de elementos de forma VIS\xCDVEL e estruturada no c\xF3digo:
 - Use constantes ou Page Object no TOPO do spec: const ELEMENTS = { loginBtn: '~btn_login', ... };
 - No teste: $(ELEMENTS.loginBtn).click();
-- Nunca deixe seletores "invis\xEDveis" (hardcoded inline repetidos). Isso dificulta manuten\xE7\xE3o e causa falhas.`;
+- Nunca deixe seletores "invis\xEDveis" (hardcoded inline repetidos). Isso dificulta manuten\xE7\xE3o e causa falhas.
+- Hierarquia: id > XPath relacional (\xE2ncora + eixos + tipo espec\xEDfico: android.widget.Button) > resource-id. Evite * e \xEDndice.`;
 var UNIVERSAL_TEST_PRACTICES = `PR\xC1TICAS OBRIGAT\xD3RIAS em todo teste gerado:
 1. Esperas inteligentes: ANTES de interagir, verifique que o elemento est\xE1 dispon\xEDvel (waitForDisplayed, waitForExist, waitForSelector)
 2. Valida\xE7\xE3o no final: SEMPRE adicione um expect/assert ao final para o usu\xE1rio entender que houve valida\xE7\xE3o (ex: expect(element).toBeVisible() ou cy.get(sel).should('be.visible'))
@@ -519,6 +534,25 @@ function detectProjectStructure() {
   const hasWebFrameworks = structure.testFrameworks.some((f) => webFrameworks.includes(f));
   if (hasWebFrameworks) hints.push("web");
   if (structure.testDirs.includes("mobile")) hints.push("mobile-dir");
+  const configPath = path2.join(PROJECT_ROOT2, "qa-lab-agent.config.json");
+  if (fs2.existsSync(configPath)) {
+    try {
+      const cfg = JSON.parse(fs2.readFileSync(configPath, "utf8"));
+      const customDirs = cfg.testDirs || cfg.qa?.testDirs;
+      if (Array.isArray(customDirs)) {
+        for (const dir of customDirs) {
+          const d = String(dir).trim();
+          if (d && !structure.testDirs.includes(d)) {
+            const fullPath = path2.join(PROJECT_ROOT2, d);
+            if (fs2.existsSync(fullPath) && fs2.statSync(fullPath).isDirectory()) {
+              structure.testDirs.push(d);
+            }
+          }
+        }
+      }
+    } catch {
+    }
+  }
   let environment = "web";
   if (structure.hasMobile && !hasWebFrameworks) environment = "mobile";
   else if (structure.hasMobile && hasWebFrameworks) environment = "both";
@@ -603,6 +637,61 @@ function matchesFramework(inferred, requested) {
   const aliases = { spec: ["playwright", "webdriverio", "appium"] };
   if (inferred === requested) return true;
   return aliases[inferred]?.includes(requested);
+}
+function detectDeviceConfig(structure) {
+  const result = { device: null, configuration: null, platform: null, envOverrides: {} };
+  if (!structure.hasMobile) return result;
+  const configPath = path2.join(PROJECT_ROOT2, "qa-lab-agent.config.json");
+  if (fs2.existsSync(configPath)) {
+    try {
+      const cfg = JSON.parse(fs2.readFileSync(configPath, "utf8"));
+      const deviceCfg = cfg.device || cfg.mobile || cfg.appium || cfg.detox;
+      if (deviceCfg) {
+        result.device = deviceCfg.deviceName || deviceCfg.device || deviceCfg.udid;
+        result.configuration = deviceCfg.configuration || deviceCfg.config;
+        result.platform = deviceCfg.platformName || deviceCfg.platform;
+        if (deviceCfg.udid) result.envOverrides.APPIUM_UDID = deviceCfg.udid;
+        if (deviceCfg.deviceName) result.envOverrides.APPIUM_DEVICE_NAME = deviceCfg.deviceName;
+      }
+    } catch {
+    }
+  }
+  if (process.env.DETOX_CONFIGURATION) result.configuration = process.env.DETOX_CONFIGURATION;
+  if (process.env.APPIUM_UDID) result.envOverrides.APPIUM_UDID = process.env.APPIUM_UDID;
+  if (process.env.APPIUM_DEVICE_NAME) result.envOverrides.APPIUM_DEVICE_NAME = process.env.APPIUM_DEVICE_NAME;
+  const detoxPath = path2.join(PROJECT_ROOT2, ".detoxrc.js");
+  if (fs2.existsSync(detoxPath) && !result.configuration) {
+    try {
+      const content = fs2.readFileSync(detoxPath, "utf8");
+      const configMatch = content.match(/configurations:\s*\{([^}]+)\}/s);
+      if (configMatch) {
+        const firstConfig = configMatch[1].match(/"([^"]+)":\s*\{/);
+        if (firstConfig) result.configuration = firstConfig[1];
+      }
+    } catch {
+    }
+  }
+  const wdioPaths = ["wdio.conf.js", "wdio.conf.cjs", "wdio.conf.mjs", "wdio.conf.ts"];
+  for (const name of wdioPaths) {
+    const wdioPath = path2.join(PROJECT_ROOT2, name);
+    if (fs2.existsSync(wdioPath) && !result.device) {
+      try {
+        const content = fs2.readFileSync(wdioPath, "utf8");
+        const capMatch = content.match(/capabilities:\s*\[([\s\S]*?)\]/);
+        if (capMatch) {
+          const deviceMatch = capMatch[1].match(/deviceName:\s*['"]([^'"]+)['"]/);
+          const udidMatch = capMatch[1].match(/udid:\s*['"]([^'"]+)['"]/);
+          const platformMatch = capMatch[1].match(/platformName:\s*['"]([^'"]+)['"]/);
+          if (deviceMatch) result.device = deviceMatch[1];
+          if (udidMatch) result.envOverrides.APPIUM_UDID = udidMatch[1];
+          if (platformMatch) result.platform = platformMatch[1];
+        }
+      } catch {
+      }
+      break;
+    }
+  }
+  return result;
 }
 function getFrameworkCwd(structure, preferredDirs) {
   for (const dir of preferredDirs) {
@@ -689,30 +778,6 @@ function extractFailuresFromOutput(runOutput) {
   }
   return failures.slice(0, 20);
 }
-function generateFailureExplanation(testCode, runOutput, memory = {}) {
-  const lines = [];
-  lines.push("# An\xE1lise de Falha\n");
-  lines.push("## C\xF3digo do Teste");
-  lines.push("```");
-  lines.push(testCode.slice(0, 2e3));
-  lines.push("```\n");
-  lines.push("## Output da Execu\xE7\xE3o");
-  lines.push("```");
-  lines.push(runOutput.slice(0, 2e3));
-  lines.push("```\n");
-  if (memory.learnings && memory.learnings.length > 0) {
-    lines.push("## Aprendizados Anteriores (\xFAltimos 5)");
-    memory.learnings.slice(-5).forEach((l) => {
-      lines.push(`- **${l.type}**: ${l.description || "N/A"}`);
-    });
-    lines.push("");
-  }
-  lines.push("## Sua Tarefa");
-  lines.push("1. Identifique a causa raiz da falha");
-  lines.push("2. Sugira uma corre\xE7\xE3o espec\xEDfica");
-  lines.push("3. Explique por que essa corre\xE7\xE3o deve funcionar");
-  return lines.join("\n");
-}
 
 // src/cli/commands.js
 import path4 from "path";
@@ -754,6 +819,8 @@ COMANDOS CLI:
   auto <descri\xE7\xE3o> [--max-retries N]    Modo aut\xF4nomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
   stats                                 Estat\xEDsticas de aprendizado (taxa de sucesso, corre\xE7\xF5es, etc.)
   report [--full]                        Relat\xF3rio de evolu\xE7\xE3o e aprendizado (--full = completo com recomenda\xE7\xF5es)
+  metrics-report [--json] [--output FILE] [path1 path2 ...]  Relat\xF3rio de m\xE9tricas (m\xE9todo, resultado). Sem paths = projeto atual.
+  flaky-report [--runs N] [--spec FILE] [--output FILE]      Detecta testes flaky: roda N vezes (default 3), identifica intermit\xEAncia e causa prov\xE1vel
   detect [--json]                       Detecta frameworks e estrutura
   route <tarefa>                        Sugere qual ferramenta usar
   list                                  Lista ferramentas MCP dispon\xEDveis
@@ -765,6 +832,7 @@ EXEMPLOS:
   mcp-lab-agent analyze                         # An\xE1lise completa + recomenda\xE7\xF5es
   mcp-lab-agent auto "login flow" --max-retries 5
   mcp-lab-agent stats
+  mcp-lab-agent flaky-report --runs 5 --output flaky.md
   mcp-lab-agent detect --json
 
 INTEGRA\xC7\xC3O MCP (Cursor/Cline/Windsurf):
@@ -897,7 +965,403 @@ ${recommendations.map((r) => `  \u2022 ${r}`).join("\n")}` : ""}
     await handleAnalyzeCommand();
     return true;
   }
+  if (cmd === "metrics-report") {
+    await handleMetricsReportCommand();
+    return true;
+  }
+  if (cmd === "flaky-report") {
+    await handleFlakyReportCommand();
+    return true;
+  }
   return false;
+}
+async function handleMetricsReportCommand() {
+  const argv = process.argv.slice(2);
+  const jsonOnly = argv.includes("--json");
+  const outputIdx = argv.indexOf("--output");
+  const outputFile = outputIdx !== -1 && argv[outputIdx + 1] ? argv[outputIdx + 1] : null;
+  const paths = argv.filter((a) => {
+    if (a.startsWith("--") || a === "metrics-report") return false;
+    if (outputIdx !== -1 && a === argv[outputIdx + 1]) return false;
+    return true;
+  });
+  const projectDirs = paths.length > 0 ? paths : [PROJECT_ROOT4];
+  const reports = [];
+  for (const dir of projectDirs) {
+    const resolved = path4.resolve(dir);
+    if (!fs4.existsSync(resolved)) {
+      console.warn(`\u26A0\uFE0F Diret\xF3rio n\xE3o encontrado: ${dir}`);
+      continue;
+    }
+    const memoryPath = path4.join(resolved, ".qa-lab-memory.json");
+    const metricsPath = path4.join(resolved, ".qa-lab-metrics.json");
+    let memory = {};
+    let metrics = { events: [] };
+    if (fs4.existsSync(memoryPath)) {
+      try {
+        memory = JSON.parse(fs4.readFileSync(memoryPath, "utf8"));
+      } catch {
+      }
+    }
+    if (fs4.existsSync(metricsPath)) {
+      try {
+        metrics = JSON.parse(fs4.readFileSync(metricsPath, "utf8"));
+      } catch {
+      }
+    }
+    const events = metrics.events || [];
+    const executions = memory.executions || [];
+    const learnings = memory.learnings || [];
+    const byEventType = {};
+    events.forEach((e) => {
+      const t = e.type || "unknown";
+      byEventType[t] = (byEventType[t] || 0) + 1;
+    });
+    const testRuns = events.filter((e) => e.type === "test_run");
+    const testRunPassed = testRuns.filter((e) => e.exitCode === 0).length;
+    const testRunFailed = testRuns.filter((e) => e.exitCode !== 0).length;
+    const byFramework = {};
+    testRuns.forEach((e) => {
+      const f = e.framework || "unknown";
+      byFramework[f] = byFramework[f] || { total: 0, passed: 0, failed: 0 };
+      byFramework[f].total++;
+      if (e.exitCode === 0) byFramework[f].passed++;
+      else byFramework[f].failed++;
+    });
+    const byLearningType = {};
+    learnings.forEach((l) => {
+      const t = l.type || "unknown";
+      byLearningType[t] = byLearningType[t] || { total: 0, success: 0 };
+      byLearningType[t].total++;
+      if (l.success) byLearningType[t].success++;
+    });
+    const execByFramework = {};
+    executions.forEach((e) => {
+      const f = e.framework || "unknown";
+      execByFramework[f] = execByFramework[f] || { total: 0, passed: 0 };
+      execByFramework[f].total++;
+      if (e.passed) execByFramework[f].passed++;
+    });
+    const projectName = path4.basename(resolved);
+    reports.push({
+      project: projectName,
+      path: resolved,
+      summary: {
+        eventsTotal: events.length,
+        eventTypes: byEventType,
+        testRuns: { total: testRuns.length, passed: testRunPassed, failed: testRunFailed },
+        byFramework,
+        executions: { total: executions.length, byFramework: execByFramework },
+        learnings: { total: learnings.length, byType: byLearningType },
+        lastUpdated: metrics.lastUpdated || memory.updatedAt
+      },
+      recentEvents: events.slice(-20).map((e) => ({
+        type: e.type,
+        timestamp: e.timestamp,
+        framework: e.framework,
+        spec: e.spec,
+        passed: e.passed,
+        failed: e.failed,
+        exitCode: e.exitCode,
+        durationSeconds: e.durationSeconds
+      }))
+    });
+  }
+  if (jsonOnly) {
+    const out = JSON.stringify({ projects: reports, generatedAt: (/* @__PURE__ */ new Date()).toISOString() }, null, 2);
+    if (outputFile) fs4.writeFileSync(outputFile, out, "utf8");
+    else console.log(out);
+    return;
+  }
+  let report = `# Relat\xF3rio de M\xE9tricas \u2014 mcp-lab-agent
+
+`;
+  report += `Gerado em: ${(/* @__PURE__ */ new Date()).toISOString()}
+`;
+  report += `Projetos: ${reports.length}
+
+`;
+  report += `---
+
+`;
+  for (const r of reports) {
+    report += `## ${r.project}
+
+`;
+    report += `**Caminho:** \`${r.path}\`
+
+`;
+    const s = r.summary;
+    report += `### Eventos (.qa-lab-metrics.json)
+
+`;
+    report += `| M\xE9todo/Tipo | Total | Descri\xE7\xE3o |
+`;
+    report += `|-------------|-------|
+`;
+    for (const [t, count] of Object.entries(s.eventTypes || {})) {
+      let desc = "";
+      if (t === "test_run") desc = `Execu\xE7\xE3o de testes (passed/failed por framework abaixo)`;
+      else if (t === "bug_reported") desc = "Bug report gerado";
+      else desc = t;
+      report += `| ${t} | ${count} | ${desc} |
+`;
+    }
+    if (Object.keys(s.eventTypes || {}).length === 0) {
+      report += `| \u2014 | 0 | Nenhum evento registrado |
+`;
+    }
+    report += `
+`;
+    if (s.testRuns?.total > 0) {
+      report += `### Resultado de Execu\xE7\xF5es (run_tests)
+
+`;
+      report += `| Framework | Total | Passed | Failed | Taxa sucesso |
+`;
+      report += `|-----------|-------|--------|--------|---------------|
+`;
+      for (const [fw, data] of Object.entries(s.byFramework || {})) {
+        const rate = data.total > 0 ? Math.round(data.passed / data.total * 100) : 0;
+        report += `| ${fw} | ${data.total} | ${data.passed} | ${data.failed} | ${rate}% |
+`;
+      }
+      report += `
+`;
+      report += `**Resumo:** ${s.testRuns.passed} passed, ${s.testRuns.failed} failed (total: ${s.testRuns.total})
+
+`;
+    }
+    if (s.executions?.total > 0) {
+      report += `### Hist\xF3rico de Execu\xE7\xF5es (memory)
+
+`;
+      report += `| Framework | Total | Passed | Taxa |
+`;
+      report += `|-----------|-------|--------|------|
+`;
+      for (const [fw, data] of Object.entries(s.executions.byFramework || {})) {
+        const rate = data.total > 0 ? Math.round(data.passed / data.total * 100) : 0;
+        report += `| ${fw} | ${data.total} | ${data.passed} | ${rate}% |
+`;
+      }
+      report += `
+`;
+    }
+    if (s.learnings?.total > 0) {
+      report += `### Aprendizados (.qa-lab-memory.json)
+
+`;
+      report += `| Tipo | Total | Sucesso | Taxa |
+`;
+      report += `|------|-------|---------|------|
+`;
+      for (const [t, data] of Object.entries(s.learnings.byType || {})) {
+        const rate = data.total > 0 ? Math.round(data.success / data.total * 100) : 0;
+        report += `| ${t} | ${data.total} | ${data.success} | ${rate}% |
+`;
+      }
+      report += `
+`;
+    }
+    if (r.recentEvents?.length > 0) {
+      report += `### \xDAltimos 20 eventos
+
+`;
+      report += `| Data | Tipo | Framework | Spec | Passed | Failed | Exit | Dura\xE7\xE3o(s) |
+`;
+      report += `|------|------|-----------|------|--------|--------|------|------------|
+`;
+      for (const e of r.recentEvents.slice(-10)) {
+        const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : "\u2014";
+        report += `| ${ts} | ${e.type || "\u2014"} | ${e.framework || "\u2014"} | ${(e.spec || "\u2014").slice(0, 20)} | ${e.passed ?? "\u2014"} | ${e.failed ?? "\u2014"} | ${e.exitCode ?? "\u2014"} | ${e.durationSeconds ?? "\u2014"} |
+`;
+      }
+      report += `
+`;
+    }
+    if (s.lastUpdated) {
+      report += `*\xDAltima atualiza\xE7\xE3o: ${s.lastUpdated}*
+
+`;
+    }
+    report += `---
+
+`;
+  }
+  if (outputFile) {
+    fs4.writeFileSync(outputFile, report, "utf8");
+    console.log(`
+\u{1F4C4} Relat\xF3rio salvo em: ${outputFile}
+`);
+  } else {
+    console.log(report);
+  }
+}
+async function handleFlakyReportCommand() {
+  const argv = process.argv.slice(2);
+  const runsIdx = argv.indexOf("--runs");
+  const runs = runsIdx !== -1 && argv[runsIdx + 1] ? parseInt(argv[runsIdx + 1], 10) : 3;
+  const specIdx = argv.indexOf("--spec");
+  const spec = specIdx !== -1 && argv[specIdx + 1] ? argv[specIdx + 1] : null;
+  const outputIdx = argv.indexOf("--output");
+  const outputFile = outputIdx !== -1 && argv[outputIdx + 1] ? argv[outputIdx + 1] : null;
+  const structure = detectProjectStructure();
+  if (!structure.hasTests) {
+    console.error("\u274C Nenhum framework de teste detectado.");
+    process.exit(1);
+  }
+  const fw = structure.testFrameworks[0];
+  const { cmd, args, cwd } = getRunCommand(structure, fw, spec);
+  console.log(`
+\u{1F52C} Relat\xF3rio de testes flaky
+`);
+  console.log(`Framework: ${fw}`);
+  console.log(`Execu\xE7\xF5es: ${runs}`);
+  if (spec) console.log(`Spec: ${spec}`);
+  console.log(`
+Rodando testes ${runs}x...
+`);
+  const results = [];
+  for (let i = 0; i < runs; i++) {
+    process.stdout.write(`  [${i + 1}/${runs}] `);
+    const result = await runTestsOnce(cmd, args, cwd);
+    results.push(result);
+    process.stdout.write(result.passed ? "\u2705 passou\n" : "\u274C falhou\n");
+  }
+  const passed = results.filter((r) => r.passed).length;
+  const failed = results.filter((r) => !r.passed).length;
+  const isFlaky = passed > 0 && failed > 0;
+  const failureOutput = results.find((r) => !r.passed)?.output || "";
+  const flakyAnalysis = failureOutput ? detectFlakyPatterns(failureOutput) : null;
+  const probableCause = flakyAnalysis?.isLikelyFlaky ? flakyAnalysis.patterns.map((p) => `${p.pattern}: ${p.suggestion}`).join("; ") : "N\xE3o foi poss\xEDvel inferir (rode com explainOnFailure para an\xE1lise detalhada)";
+  let report = `# Relat\xF3rio de testes flaky \u2014 mcp-lab-agent
+
+`;
+  report += `Gerado em: ${(/* @__PURE__ */ new Date()).toISOString()}
+`;
+  report += `Framework: ${fw}
+`;
+  report += `Execu\xE7\xF5es: ${runs}
+`;
+  if (spec) report += `Spec: ${spec}
+`;
+  report += `
+---
+
+`;
+  report += `## Resultado
+
+`;
+  report += `| M\xE9trica | Valor |
+`;
+  report += `|---------|-------|
+`;
+  report += `| Passou | ${passed}/${runs} |
+`;
+  report += `| Falhou | ${failed}/${runs} |
+`;
+  report += `| Taxa de falha | ${Math.round(failed / runs * 100)}% |
+`;
+  report += `| **Flaky?** | ${isFlaky ? "\u26A0\uFE0F SIM" : failed === runs ? "\u274C Falha consistente" : "\u2705 Est\xE1vel"} |
+
+`;
+  if (isFlaky) {
+    report += `## Causa prov\xE1vel
+
+`;
+    report += `${probableCause}
+
+`;
+    if (flakyAnalysis?.patterns?.length) {
+      report += `### Sugest\xF5es
+
+`;
+      flakyAnalysis.patterns.forEach((p) => {
+        report += `- **${p.pattern}:** ${p.suggestion}
+`;
+      });
+      report += `
+`;
+    }
+  }
+  if (failed > 0 && failureOutput) {
+    report += `## \xDAltima sa\xEDda de falha (trecho)
+
+`;
+    report += "```\n";
+    report += failureOutput.slice(0, 1500).trim();
+    if (failureOutput.length > 1500) report += "\n...";
+    report += "\n```\n\n";
+  }
+  report += `---
+
+`;
+  report += `*Use \`mcp-lab-agent por_que_falhou\` (via MCP) ou \`run_tests\` com \`explainOnFailure: true\` para an\xE1lise detalhada.*
+`;
+  if (outputFile) {
+    fs4.writeFileSync(outputFile, report, "utf8");
+    console.log(`
+\u{1F4C4} Relat\xF3rio salvo em: ${outputFile}
+`);
+  } else {
+    console.log("\n" + report);
+  }
+  process.exit(isFlaky ? 1 : 0);
+}
+function getRunCommand(structure, fw, spec) {
+  const cwdMap = {
+    cypress: structure.testDirs.includes("cypress") ? path4.join(PROJECT_ROOT4, "cypress") : structure.testDirs[0] ? path4.join(PROJECT_ROOT4, structure.testDirs[0]) : PROJECT_ROOT4,
+    playwright: structure.testDirs.includes("playwright") ? path4.join(PROJECT_ROOT4, "playwright") : structure.testDirs[0] ? path4.join(PROJECT_ROOT4, structure.testDirs[0]) : PROJECT_ROOT4
+  };
+  const cwd = cwdMap[fw] || getFrameworkCwd(structure, ["specs", "tests", "e2e"]) || PROJECT_ROOT4;
+  if (fw === "cypress") {
+    return { cmd: "npx", args: spec ? ["cypress", "run", "--spec", spec] : ["cypress", "run"], cwd };
+  }
+  if (fw === "playwright") {
+    return { cmd: "npx", args: spec ? ["playwright", "test", spec] : ["playwright", "test"], cwd };
+  }
+  if (fw === "webdriverio" || fw === "appium") {
+    return { cmd: "npx", args: spec ? ["wdio", "run", spec] : ["wdio", "run"], cwd: PROJECT_ROOT4 };
+  }
+  if (fw === "jest") {
+    return { cmd: "npx", args: spec ? ["jest", spec] : ["jest"], cwd: PROJECT_ROOT4 };
+  }
+  if (fw === "vitest") {
+    return { cmd: "npx", args: ["vitest", "run", ...spec ? [spec] : []], cwd: PROJECT_ROOT4 };
+  }
+  if (fw === "mocha") {
+    return { cmd: "npx", args: spec ? ["mocha", spec] : ["mocha"], cwd: PROJECT_ROOT4 };
+  }
+  if (fw === "pytest") {
+    return { cmd: "pytest", args: spec ? [spec] : [], cwd: PROJECT_ROOT4 };
+  }
+  if (fw === "robot") {
+    return { cmd: "robot", args: spec ? [spec] : [structure.testDirs[0] || "tests"], cwd: PROJECT_ROOT4 };
+  }
+  return { cmd: "npm", args: ["test"], cwd: PROJECT_ROOT4 };
+}
+function runTestsOnce(cmd, args, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, {
+      cwd,
+      stdio: ["inherit", "pipe", "pipe"],
+      shell: process.platform === "win32",
+      env: { ...process.env }
+    });
+    let stdout = "";
+    let stderr = "";
+    if (child.stdout) child.stdout.on("data", (d) => {
+      stdout += d.toString();
+    });
+    if (child.stderr) child.stderr.on("data", (d) => {
+      stderr += d.toString();
+    });
+    child.on("close", (code) => {
+      const output = [stdout, stderr].filter(Boolean).join("\n");
+      resolve({ passed: code === 0, code: code ?? 1, output });
+    });
+  });
 }
 async function handleAutoCommand() {
   const request = process.argv.slice(3).join(" ");
@@ -1120,7 +1584,7 @@ var PROJECT_ROOT5 = process.cwd();
 config({ path: path5.join(PROJECT_ROOT5, ".env") });
 var server = new McpServer({
   name: "mcp-lab-agent",
-  version: "2.1.0"
+  version: "2.1.9"
 });
 var METRICS_FILE2 = path5.join(PROJECT_ROOT5, ".qa-lab-metrics.json");
 function appendMetricsEvent(event) {
@@ -1397,7 +1861,9 @@ server.registerTool(
       ]).optional().describe("Framework espec\xEDfico ou 'npm' para npm test."),
       spec: z.string().optional().describe("Caminho do spec (ex: cypress/e2e/test.cy.js)."),
       suite: z.string().optional().describe("Suite ou pattern (ex: e2e, api)."),
-      explainOnFailure: z.boolean().optional().describe("Se true, quando falhar gera automaticamente: O que aconteceu, Por que falhou, O que fazer, Sugest\xE3o de corre\xE7\xE3o. Requer API key.")
+      device: z.string().optional().describe("Device/configuration para mobile. Se vazio, detecta de qa-lab-agent.config.json, wdio.conf ou .detoxrc."),
+      explainOnFailure: z.boolean().optional().describe("Se true, quando falhar gera automaticamente: O que aconteceu, Por que falhou, O que fazer, Sugest\xE3o de corre\xE7\xE3o. Requer API key."),
+      autoFixSelector: z.boolean().optional().describe("Se true e falhar por seletor, aplica corre\xE7\xE3o automaticamente e tenta novamente. Requer spec e API key. Default: true para mobile.")
     }),
     outputSchema: z.object({
       status: z.enum(["passed", "failed", "not_found"]),
@@ -1406,7 +1872,7 @@ server.registerTool(
       runOutput: z.string().optional()
     })
   },
-  async ({ framework, spec, suite, explainOnFailure }) => {
+  async ({ framework, spec, suite, explainOnFailure, device, autoFixSelector }) => {
     const structure = detectProjectStructure();
     if (!structure.hasTests) {
       return {
@@ -1421,6 +1887,19 @@ server.registerTool(
     let selectedFramework = framework;
     if (!selectedFramework && structure.testFrameworks.length > 0) {
       selectedFramework = structure.testFrameworks[0];
+    }
+    const deviceConfig = structure.hasMobile ? detectDeviceConfig(structure) : {};
+    const useDevice = device || deviceConfig.configuration || deviceConfig.device;
+    const doAutoFixSelector = autoFixSelector ?? (structure.hasMobile && !!spec);
+    let runEnv = { ...process.env };
+    if (useDevice && Object.keys(deviceConfig.envOverrides || {}).length) {
+      runEnv = { ...runEnv, ...deviceConfig.envOverrides };
+    }
+    if (device) {
+      if (selectedFramework === "detox") runEnv.DETOX_CONFIGURATION = device;
+      else if (selectedFramework === "appium") runEnv.APPIUM_DEVICE_NAME = device;
+    } else if (deviceConfig.configuration && selectedFramework === "detox") {
+      runEnv.DETOX_CONFIGURATION = deviceConfig.configuration;
     }
     let cmd, args, cwd;
     if (selectedFramework === "cypress") {
@@ -1472,6 +1951,7 @@ server.registerTool(
     } else if (selectedFramework === "detox") {
       cmd = "npx";
       args = ["detox", "test"];
+      if (useDevice) args.push("--configuration", useDevice);
       if (spec) args.push(spec);
       cwd = PROJECT_ROOT5;
     } else if (selectedFramework === "robot") {
@@ -1491,72 +1971,101 @@ server.registerTool(
       args = ["test"];
       cwd = PROJECT_ROOT5;
     }
-    const startTime = Date.now();
-    return new Promise((resolve) => {
+    const runTestsOnce2 = () => new Promise((resolve) => {
+      const startTime = Date.now();
       const child = spawn2(cmd, args, {
         cwd,
         stdio: ["inherit", "pipe", "pipe"],
         shell: process.platform === "win32",
-        env: { ...process.env }
+        env: runEnv
       });
       let stdout = "";
       let stderr = "";
-      if (child.stdout) {
-        child.stdout.on("data", (d) => {
-          const s = d.toString();
-          stdout += s;
-          process.stdout.write(s);
-        });
-      }
-      if (child.stderr) {
-        child.stderr.on("data", (d) => {
-          const s = d.toString();
-          stderr += s;
-          process.stderr.write(s);
-        });
-      }
+      if (child.stdout) child.stdout.on("data", (d) => {
+        stdout += d.toString();
+        process.stdout.write(d);
+      });
+      if (child.stderr) child.stderr.on("data", (d) => {
+        stderr += d.toString();
+        process.stderr.write(d);
+      });
       child.on("close", (code) => {
         const runOutput = [stdout, stderr].filter(Boolean).join("\n").trim();
-        const passed = code === 0;
-        const durationSeconds = Math.round((Date.now() - startTime) / 1e3);
-        if (!passed && runOutput) {
-          try {
-            fs5.writeFileSync(path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log"), runOutput, "utf8");
-          } catch {
-          }
-        }
-        const { passed: p, failed: f } = parseTestRunResult(runOutput, code);
-        appendMetricsEvent({
-          type: "test_run",
-          framework: selectedFramework,
-          spec: spec || void 0,
-          passed: p,
-          failed: f,
-          durationSeconds,
-          exitCode: code ?? 1,
-          failures: !passed ? extractFailuresFromOutput(runOutput) : void 0
-        });
-        if (passed) saveProjectMemory({ lastRun: { spec: spec || null, framework: selectedFramework, passed: p } });
-        saveProjectMemory({
-          execution: {
-            testFile: spec || "all",
-            passed,
-            duration: durationSeconds,
-            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-            framework: selectedFramework
-          }
-        });
         resolve({
-          content: [{ type: "text", text: passed ? "Testes executados com sucesso." : "Falha na execu\xE7\xE3o dos testes." }],
-          structuredContent: {
-            status: passed ? "passed" : "failed",
-            message: passed ? "Tests passed" : "Tests failed",
-            exitCode: code ?? 1,
-            runOutput: !passed ? runOutput : void 0
-          }
+          passed: code === 0,
+          exitCode: code ?? 1,
+          runOutput,
+          durationSeconds: Math.round((Date.now() - startTime) / 1e3)
         });
       });
     });
+    const isSelectorFailure = (out) => /element not found|selector|timeout|locator|cy\.get|page\.locator|Unable to find/i.test(out || "");
+    let result = await runTestsOnce2();
+    let autoFixed = false;
+    if (!result.passed && doAutoFixSelector && spec && isSelectorFailure(result.runOutput) && resolveLLMProvider("complex").apiKey) {
+      const fixResult = await applySelectorFixAndRetry(spec, result.runOutput, selectedFramework);
+      if (fixResult.applied) {
+        autoFixed = true;
+        result = await runTestsOnce2();
+      }
+    }
+    if (!result.passed && result.runOutput) {
+      try {
+        fs5.writeFileSync(path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log"), result.runOutput, "utf8");
+      } catch {
+      }
+    }
+    const { passed: p, failed: f } = parseTestRunResult(result.runOutput, result.exitCode);
+    appendMetricsEvent({
+      type: "test_run",
+      framework: selectedFramework,
+      spec: spec || void 0,
+      passed: p,
+      failed: f,
+      durationSeconds: result.durationSeconds,
+      exitCode: result.exitCode,
+      failures: !result.passed ? extractFailuresFromOutput(result.runOutput) : void 0
+    });
+    if (result.passed) saveProjectMemory({ lastRun: { spec: spec || null, framework: selectedFramework, passed: p } });
+    saveProjectMemory({
+      execution: {
+        testFile: spec || "all",
+        passed: result.passed,
+        duration: result.durationSeconds,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        framework: selectedFramework
+      }
+    });
+    const baseMsg = result.passed ? autoFixed ? "Testes executados com sucesso (ap\xF3s corre\xE7\xE3o autom\xE1tica de seletor)." : "Testes executados com sucesso." : "Falha na execu\xE7\xE3o dos testes.";
+    const structured = {
+      status: result.passed ? "passed" : "failed",
+      message: result.passed ? "Tests passed" : "Tests failed",
+      exitCode: result.exitCode,
+      runOutput: !result.passed ? result.runOutput : void 0,
+      autoFixed: autoFixed || void 0
+    };
+    if (!result.passed && explainOnFailure && result.runOutput) {
+      const explainResult = await generateFailureExplanation(result.runOutput, spec || void 0);
+      if (explainResult.ok && explainResult.structuredContent) {
+        const oneLine = explainResult.structuredContent.resumoEmUmaFrase || oneLineFailureSummary(result.runOutput, selectedFramework, explainResult.structuredContent.oQueAconteceu, explainResult.structuredContent.sugestaoCorrecao);
+        structured.explanation = explainResult.structuredContent.formattedText;
+        structured.resumoEmUmaFrase = oneLine;
+        return {
+          content: [{ type: "text", text: `${baseMsg}
+
+**${oneLine}**
+
+---
+
+${explainResult.structuredContent.formattedText}` }],
+          structuredContent: structured
+        };
+      }
+    }
+    return {
+      content: [{ type: "text", text: baseMsg }],
+      structuredContent: structured
+    };
   }
 );
 server.registerTool(
@@ -1681,7 +2190,9 @@ O c\xF3digo de refer\xEAncia pode estar em QUALQUER framework (Cypress, Robot, P
 
 ${UNIVERSAL_TEST_PRACTICES}
 ${fw === "appium" || fw === "detox" ? `
-IMPORTANTE: ${MOBILE_MAPPING_LESSON}` : ""}` : `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
+IMPORTANTE: ${MOBILE_MAPPING_LESSON}
+
+HIERARQUIA DE SELETORES: ${MOBILE_SELECTOR_HIERARCHY}` : ""}` : `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
 Framework: ${fw}
 
 ${UNIVERSAL_TEST_PRACTICES}
@@ -1695,7 +2206,9 @@ Regras:
 - pytest: def test_*, assert, fixtures
 - C\xF3digo limpo. Retorne SOMENTE o c\xF3digo, sem markdown${fw === "appium" || fw === "detox" ? `
 
-IMPORTANTE (Appium/Detox): ${MOBILE_MAPPING_LESSON}` : ""}`;
+IMPORTANTE (Appium/Detox): ${MOBILE_MAPPING_LESSON}
+
+HIERARQUIA: ${MOBILE_SELECTOR_HIERARCHY}` : ""}`;
     const userPrompt = `Contexto do projeto:
 ${contextWithMemory.slice(0, 5e3)}
 
@@ -1900,8 +2413,10 @@ server.registerTool(
     };
   }
 );
-function formatFailureExplanation(data) {
-  const lines = [
+function formatFailureExplanation(data, oneLine = null) {
+  const summary = oneLine || data.resumoEmUmaFrase || "";
+  const lines = summary ? [`**${summary}**`, "", "---", ""] : [];
+  lines.push(
     "## O que aconteceu",
     "",
     data.oQueAconteceu || "",
@@ -1913,7 +2428,7 @@ function formatFailureExplanation(data) {
     "## O que fazer agora",
     "",
     ...Array.isArray(data.oQueFazerAgora) ? data.oQueFazerAgora.map((s, i) => `${i + 1}. ${s}`) : [data.oQueFazerAgora || ""]
-  ];
+  );
   if (data.sugestaoCorrecao) {
     lines.push("", "## Sugest\xE3o de corre\xE7\xE3o", "", "```" + (data.framework || "js"), data.sugestaoCorrecao, "```");
   }
@@ -1955,6 +2470,111 @@ async function callLlmForExplanation(provider, apiKey, baseUrl, model, systemPro
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
 }
+async function applySelectorFixAndRetry(testFilePath, errorOutput, framework) {
+  const structure = detectProjectStructure();
+  const fw = framework || inferFrameworkFromFile(testFilePath.split("/").pop(), structure);
+  const fullPath = path5.join(PROJECT_ROOT5, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
+  if (!fs5.existsSync(fullPath)) return { applied: false };
+  let testCode = "";
+  try {
+    testCode = fs5.readFileSync(fullPath, "utf8");
+  } catch {
+    return { applied: false };
+  }
+  const llm = resolveLLMProvider("complex");
+  if (!llm.apiKey) return { applied: false };
+  const { provider, apiKey, baseUrl, model } = llm;
+  const systemPrompt = `Voc\xEA \xE9 um especialista em testes E2E. O teste falhou porque um seletor n\xE3o encontrou o elemento.
+Retorne APENAS em JSON (sem markdown) com a chave:
+- codigoCorrigido: string (o ARQUIVO COMPLETO do teste corrigido, com imports e toda a estrutura. Substitua o seletor quebrado por um mais resiliente: data-testid, role, ~accessibility-id, ou XPath relacional com tipo espec\xEDfico.)
+
+Framework: ${fw}. Priorize seletores est\xE1veis.`;
+  const userPrompt = `Output do erro:
+---
+${(errorOutput || "").slice(0, 8e3)}
+---
+
+C\xF3digo atual:
+---
+${testCode.slice(0, 6e3)}
+---`;
+  try {
+    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    const data = JSON.parse(raw);
+    const fixed = (data.codigoCorrigido || "").trim();
+    if (fixed.length > 50 && /describe|it\(|test\(|cy\.|page\.|\$\(/.test(fixed)) {
+      fs5.writeFileSync(fullPath, fixed, "utf8");
+      return { applied: true };
+    }
+  } catch {
+  }
+  return { applied: false };
+}
+async function generateFailureExplanation(resolvedOutput, testFilePath = null) {
+  const structure = detectProjectStructure();
+  const fw = structure.testFrameworks[0] || "unknown";
+  let testCode = "";
+  if (testFilePath) {
+    const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
+    const fullPath = path5.join(PROJECT_ROOT5, normalized);
+    if (fs5.existsSync(fullPath) && !fs5.statSync(fullPath).isDirectory()) {
+      try {
+        testCode = fs5.readFileSync(fullPath, "utf8");
+      } catch {
+      }
+    }
+  }
+  const llm = resolveLLMProvider("complex");
+  if (!llm.apiKey) return { ok: false, structuredContent: null };
+  const { provider, apiKey, baseUrl, model } = llm;
+  const fwHints = {
+    webdriverio: "WebdriverIO (describe/it, $, browser.$)",
+    appium: "Appium/WebdriverIO (mobile, $, browser.$)",
+    playwright: "Playwright (test, page, locator)",
+    cypress: "Cypress (cy.get, cy.click)",
+    jest: "Jest (describe, test, expect)",
+    vitest: "Vitest (describe, test, expect)",
+    robot: "Robot Framework",
+    pytest: "pytest"
+  };
+  const systemPrompt = `Voc\xEA \xE9 um mentor de QA. Analise o output de falha e responda em JSON (apenas o JSON, sem markdown) com as chaves:
+- resumoEmUmaFrase: string (OBRIGAT\xD3RIO - uma frase: "Falhou porque X. Solu\xE7\xE3o: Y.")
+- oQueAconteceu: string (explica\xE7\xE3o em portugu\xEAs do que aconteceu, simples)
+- porQueProvavelmenteFalhou: array de strings (lista de poss\xEDveis causas)
+- oQueFazerAgora: array de strings (passos numerados do que fazer)
+- sugestaoCorrecao: string ou null (c\xF3digo de corre\xE7\xE3o no formato do framework)
+- conceito: string ou null
+- framework: string (framework do projeto)
+
+Framework: ${fw}. ${fwHints[fw] || ""}
+Responda APENAS com o JSON v\xE1lido, sem texto antes ou depois.`;
+  const userPrompt = `Output do terminal/log (teste falhou):
+---
+${resolvedOutput.slice(0, 12e3)}
+---
+${testCode ? `
+C\xF3digo do teste:
+---
+${testCode.slice(0, 6e3)}
+---` : ""}`;
+  try {
+    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    let data = {};
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { oQueAconteceu: raw.slice(0, 500) || "N\xE3o foi poss\xEDvel parsear.", porQueProvavelmenteFalhou: [], oQueFazerAgora: [], sugestaoCorrecao: null, conceito: null, framework: fw };
+    }
+    data.framework = data.framework || fw;
+    const oneLine = oneLineFailureSummary(resolvedOutput, fw, data.oQueAconteceu, data.sugestaoCorrecao);
+    const formattedText = formatFailureExplanation(data, data.resumoEmUmaFrase || oneLine);
+    return { ok: true, formattedText, structuredContent: { ...data, formattedText } };
+  } catch (err) {
+    return { ok: false, error: err.message, structuredContent: null };
+  }
+}
 server.registerTool(
   "por_que_falhou",
   {
@@ -1977,8 +2597,6 @@ server.registerTool(
     })
   },
   async ({ errorOutput, testFilePath }) => {
-    const structure = detectProjectStructure();
-    const fw = structure.testFrameworks[0] || "unknown";
     let resolvedOutput = errorOutput?.trim() || "";
     if (!resolvedOutput) {
       const lastFailurePath = path5.join(PROJECT_ROOT5, ".qa-lab-last-failure.log");
@@ -1998,94 +2616,36 @@ server.registerTool(
         structuredContent: { ok: false, error: "No error output" }
       };
     }
-    let testCode = "";
-    if (testFilePath) {
-      const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
-      const fullPath = path5.join(PROJECT_ROOT5, normalized);
-      if (fs5.existsSync(fullPath) && !fs5.statSync(fullPath).isDirectory()) {
-        try {
-          testCode = fs5.readFileSync(fullPath, "utf8");
-        } catch {
-        }
-      }
-    }
-    const llm = resolveLLMProvider("complex");
-    if (!llm.apiKey) {
-      return {
-        content: [{
-          type: "text",
-          text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env do projeto para usar a explica\xE7\xE3o com LLM."
-        }],
-        structuredContent: { ok: false, error: "No API key configured" }
-      };
-    }
-    const { provider, apiKey, baseUrl, model } = llm;
-    const fwHints = {
-      webdriverio: "WebdriverIO (describe/it, $, browser.$)",
-      appium: "Appium/WebdriverIO (mobile, $, browser.$)",
-      playwright: "Playwright (test, page, locator)",
-      cypress: "Cypress (cy.get, cy.click)",
-      jest: "Jest (describe, test, expect)",
-      vitest: "Vitest (describe, test, expect)",
-      robot: "Robot Framework",
-      pytest: "pytest"
-    };
-    const systemPrompt = `Voc\xEA \xE9 um mentor de QA. Analise o output de falha e responda em JSON (apenas o JSON, sem markdown) com as chaves:
-- oQueAconteceu: string (explica\xE7\xE3o em portugu\xEAs do que aconteceu, simples)
-- porQueProvavelmenteFalhou: array de strings (lista de poss\xEDveis causas, uma por item)
-- oQueFazerAgora: array de strings (passos numerados do que fazer)
-- sugestaoCorrecao: string ou null (c\xF3digo de corre\xE7\xE3o se aplic\xE1vel, no formato do framework)
-- conceito: string ou null (ex: "Flaky test = teste intermitente. Geralmente por timing ou seletores fr\xE1geis.")
-- framework: string (framework do projeto)
-
-Framework do projeto: ${fw}. ${fwHints[fw] || ""}
-Responda APENAS com o JSON v\xE1lido, sem texto antes ou depois.`;
-    const userPrompt = `Output do terminal/log (teste falhou):
----
-${resolvedOutput.slice(0, 12e3)}
----
-${testCode ? `
-C\xF3digo do teste que falhou:
----
-${testCode.slice(0, 6e3)}
----` : ""}`;
-    try {
-      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
-      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-      let data = {};
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        data = {
-          oQueAconteceu: raw.slice(0, 500) || "N\xE3o foi poss\xEDvel parsear a resposta.",
-          porQueProvavelmenteFalhou: [],
-          oQueFazerAgora: [],
-          sugestaoCorrecao: null,
-          conceito: null,
-          framework: fw
+    const explainResult = await generateFailureExplanation(resolvedOutput, testFilePath);
+    if (!explainResult.ok) {
+      if (!resolveLLMProvider("complex").apiKey) {
+        return {
+          content: [{
+            type: "text",
+            text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env do projeto para usar a explica\xE7\xE3o com LLM."
+          }],
+          structuredContent: { ok: false, error: "No API key configured" }
         };
       }
-      data.framework = data.framework || fw;
-      const formattedText = formatFailureExplanation(data);
       return {
-        content: [{ type: "text", text: formattedText }],
-        structuredContent: {
-          ok: true,
-          oQueAconteceu: data.oQueAconteceu,
-          porQueProvavelmenteFalhou: data.porQueProvavelmenteFalhou,
-          oQueFazerAgora: data.oQueFazerAgora,
-          sugestaoCorrecao: data.sugestaoCorrecao ?? null,
-          conceito: data.conceito ?? null,
-          framework: data.framework,
-          formattedText
-        }
-      };
-    } catch (err) {
-      return {
-        content: [{ type: "text", text: `Erro ao analisar: ${err.message}` }],
-        structuredContent: { ok: false, error: err.message }
+        content: [{ type: "text", text: `Erro ao analisar: ${explainResult.error || "erro desconhecido"}` }],
+        structuredContent: { ok: false, error: explainResult.error }
       };
     }
+    const sc = explainResult.structuredContent;
+    return {
+      content: [{ type: "text", text: sc.formattedText }],
+      structuredContent: {
+        ok: true,
+        oQueAconteceu: sc.oQueAconteceu,
+        porQueProvavelmenteFalhou: sc.porQueProvavelmenteFalhou,
+        oQueFazerAgora: sc.oQueFazerAgora,
+        sugestaoCorrecao: sc.sugestaoCorrecao ?? null,
+        conceito: sc.conceito ?? null,
+        framework: sc.framework,
+        formattedText: sc.formattedText
+      }
+    };
   }
 );
 server.registerTool(
@@ -2153,7 +2713,7 @@ server.registerTool(
     inputSchema: z.object({
       testFilePath: z.string().describe("Caminho do arquivo de teste que falhou (ex: specs/login.spec.js)."),
       errorOutput: z.string().optional().describe("Output do terminal da falha. Se vazio, l\xEA de .qa-lab-last-failure.log."),
-      framework: z.enum(["cypress", "playwright", "webdriverio", "appium"]).optional().describe("Framework do teste. Detectado automaticamente se omitido.")
+      framework: z.enum(["cypress", "playwright", "webdriverio", "appium", "detox"]).optional().describe("Framework do teste. Detectado automaticamente se omitido.")
     }),
     outputSchema: z.object({
       ok: z.boolean(),
@@ -2205,15 +2765,18 @@ server.registerTool(
       cypress: "Cypress: cy.get('[data-testid=...]'), cy.contains(), cy.get('button').filter(':visible')",
       playwright: `Playwright: page.getByRole(), page.getByTestId(), page.locator('button:has-text("...")')`,
       webdriverio: "WebdriverIO: $('[data-testid=...]'), $('button=Texto')",
-      appium: "Appium: $('~accessibility-id'), $('//android.view.View')"
+      appium: `Appium (HIERARQUIA \xDANICA): 1) id: $('~accessibility-id') ou $('~content-desc'). 2) XPath relacional: \xE2ncora est\xE1vel + eixos + TIPO ESPEC\xCDFICO (android.widget.Button, XCUIElementTypeButton). NUNCA use * em XPath \u2014 quebra por timing e m\xFAltiplos matches. Ex: //android.widget.LinearLayout[@resource-id='login_form']/descendant::android.widget.Button[@text='Entrar']. 3) resource-id. Explique a hierarquia.`,
+      detox: `Detox: testID > accessibilityLabel > text. Explique por que \xE9 mais est\xE1vel.`
     };
+    const mobileRules = fw === "appium" || fw === "detox" ? "\n\nMOBILE: 1) id. 2) XPath relacional: \xE2ncora + eixos + TIPO ESPEC\xCDFICO (android.widget.Button, XCUIElementTypeButton). NUNCA use * \u2014 quebra por timing. Ex: //android.widget.LinearLayout[@resource-id='login_form']/descendant::android.widget.Button[@text='Entrar']. 3) resource-id. Explique por que o seletor \xE9 forte." : "";
     const systemPrompt = `Voc\xEA \xE9 um especialista em testes E2E. O teste falhou porque um seletor n\xE3o encontrou o elemento (UI mudou).
 Analise o erro e o c\xF3digo e responda APENAS em JSON (sem markdown) com as chaves:
 - selectorSugerido: string (o novo seletor recomendado, mais resiliente)
 - codigoCorrigido: string (bloco de c\xF3digo completo corrigido, apenas a parte relevante do teste)
-- explicacao: string (breve explica\xE7\xE3o em portugu\xEAs: por que o antigo falhou e por que o novo \xE9 melhor)
+- explicacao: string (breve explica\xE7\xE3o em portugu\xEAs: por que o antigo falhou e por que o novo \xE9 melhor. Em mobile: mencione a hierarquia de estabilidade)
 
 Priorize nesta ordem: data-testid > role + accessible name > texto vis\xEDvel > estrutura. Evite classes CSS e IDs que mudam.
+${mobileRules}
 
 Framework: ${fw}. ${fwHints[fw] || ""}`;
     const userPrompt = `Output do erro:

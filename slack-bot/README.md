@@ -71,11 +71,14 @@ Seguindo [Creating an app from app settings](https://docs.slack.dev/app-manageme
     "slack": {
       "botToken": "xoxb-...",
       "appToken": "xapp-...",
-      "useLocal": true
+      "useLocal": true,
+      "workDir": "/caminho/completo/para/projeto-com-testes"
     }
   }
 }
 ```
+
+> **Importante:** Com `useLocal: true`, defina `workDir` com o caminho absoluto do projeto. Caso contrário, o bot usa a pasta de onde foi iniciado e pode não encontrar os testes. Veja [TROUBLESHOOTING.md](./TROUBLESHOOTING.md#6-bot-identifica-o-projeto-mas-não-vê-os-testes).
 
 | Credencial   | Onde obter em api.slack.com |
 |-------------|-----------------------------|

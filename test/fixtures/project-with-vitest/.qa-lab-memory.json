@@ -17,7 +17,35 @@
       "duration": 1,
       "timestamp": "2026-03-19T12:47:50.670Z",
       "framework": "vitest"
+    },
+    {
+      "testFile": "all",
+      "passed": false,
+      "duration": 1,
+      "timestamp": "2026-03-19T13:55:42.332Z",
+      "framework": "vitest"
+    },
+    {
+      "testFile": "all",
+      "passed": false,
+      "duration": 1,
+      "timestamp": "2026-03-19T18:42:08.230Z",
+      "framework": "vitest"
+    },
+    {
+      "testFile": "all",
+      "passed": false,
+      "duration": 1,
+      "timestamp": "2026-03-19T18:42:10.099Z",
+      "framework": "vitest"
+    },
+    {
+      "testFile": "all",
+      "passed": false,
+      "duration": 1,
+      "timestamp": "2026-03-19T18:42:11.661Z",
+      "framework": "vitest"
     }
   ],
-  "updatedAt": "2026-03-19T12:47:50.670Z"
+  "updatedAt": "2026-03-19T18:42:11.661Z"
 }

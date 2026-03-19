@@ -1,0 +1,18 @@
+{
+  "device": {
+    "configuration": "iPhone_15",
+    "deviceName": "Pixel_5_API_34",
+    "udid": "emulator-5554",
+    "platformName": "iOS"
+  },
+  "mcp": {
+    "description": "Para Cursor: adicione ao ~/.cursor/mcp.json",
+    "command": "npx",
+    "args": ["-y", "mcp-lab-agent@latest"],
+    "cwd": "${workspaceFolder}"
+  },
+  "slack": {
+    "repo": "https://github.com/Wesley-Gomes93/mcp-lab-agent.git",
+    "branch": "main"
+  }
+}

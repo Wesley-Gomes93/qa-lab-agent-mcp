@@ -11,6 +11,7 @@
       "botToken": "xoxb-...",
       "appToken": "xapp-...",
       "useLocal": true,
+      "workDir": "/caminho/para/projeto-com-testes",
       "branch": "main"
     }
   }

@@ -15,9 +15,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveLLMProvider, TASK_COMPLEXITY } from "./core/llm-router.js";
 import { loadProjectMemory, saveProjectMemory, getMemoryStats, analyzeTestStability } from "./core/memory.js";
-import { detectFlakyPatterns, detectMobileMappingInvisible, formatLearnedMessageForUser, MOBILE_MAPPING_LESSON, inferFailurePattern, UNIVERSAL_TEST_PRACTICES } from "./core/flaky-detection.js";
-import { detectProjectStructure, collectTestFiles, inferFrameworkFromFile, matchesFramework, getFrameworkCwd, isTestFile, analyzeCodeRisks } from "./core/project-structure.js";
-import { parseTestRunResult, recordMetricEvent, extractFailuresFromOutput, generateFailureExplanation } from "./core/tool-helpers.js";
+import { detectFlakyPatterns, detectMobileMappingInvisible, formatLearnedMessageForUser, inferFailurePattern, MOBILE_MAPPING_LESSON, MOBILE_SELECTOR_HIERARCHY, oneLineFailureSummary, UNIVERSAL_TEST_PRACTICES } from "./core/flaky-detection.js";
+import { collectTestFiles, detectDeviceConfig, detectProjectStructure, getFrameworkCwd, inferFrameworkFromFile, isTestFile, matchesFramework, analyzeCodeRisks } from "./core/project-structure.js";
+import { parseTestRunResult, recordMetricEvent, extractFailuresFromOutput } from "./core/tool-helpers.js";
 import { handleCLI } from "./cli/commands.js";
 
 const PROJECT_ROOT = process.cwd();
@@ -25,7 +25,7 @@ config({ path: path.join(PROJECT_ROOT, ".env") });
 
 const server = new McpServer({
   name: "mcp-lab-agent",
-  version: "2.1.0",
+  version: "2.1.9",
 });
 
 // ============================================================================
@@ -320,7 +320,9 @@ server.registerTool(
       ]).optional().describe("Framework específico ou 'npm' para npm test."),
       spec: z.string().optional().describe("Caminho do spec (ex: cypress/e2e/test.cy.js)."),
       suite: z.string().optional().describe("Suite ou pattern (ex: e2e, api)."),
+      device: z.string().optional().describe("Device/configuration para mobile. Se vazio, detecta de qa-lab-agent.config.json, wdio.conf ou .detoxrc."),
       explainOnFailure: z.boolean().optional().describe("Se true, quando falhar gera automaticamente: O que aconteceu, Por que falhou, O que fazer, Sugestão de correção. Requer API key."),
+      autoFixSelector: z.boolean().optional().describe("Se true e falhar por seletor, aplica correção automaticamente e tenta novamente. Requer spec e API key. Default: true para mobile."),
     }),
     outputSchema: z.object({
       status: z.enum(["passed", "failed", "not_found"]),
@@ -329,9 +331,9 @@ server.registerTool(
       runOutput: z.string().optional(),
     }),
   },
-  async ({ framework, spec, suite, explainOnFailure }) => {
+  async ({ framework, spec, suite, explainOnFailure, device, autoFixSelector }) => {
     const structure = detectProjectStructure();
-    
+
     if (!structure.hasTests) {
       return {
         content: [{ type: "text", text: "Nenhum framework de teste detectado no projeto." }],
@@ -346,6 +348,21 @@ server.registerTool(
     let selectedFramework = framework;
     if (!selectedFramework && structure.testFrameworks.length > 0) {
       selectedFramework = structure.testFrameworks[0];
+    }
+
+    const deviceConfig = structure.hasMobile ? detectDeviceConfig(structure) : {};
+    const useDevice = device || deviceConfig.configuration || deviceConfig.device;
+    const doAutoFixSelector = autoFixSelector ?? (structure.hasMobile && !!spec);
+
+    let runEnv = { ...process.env };
+    if (useDevice && Object.keys(deviceConfig.envOverrides || {}).length) {
+      runEnv = { ...runEnv, ...deviceConfig.envOverrides };
+    }
+    if (device) {
+      if (selectedFramework === "detox") runEnv.DETOX_CONFIGURATION = device;
+      else if (selectedFramework === "appium") runEnv.APPIUM_DEVICE_NAME = device;
+    } else if (deviceConfig.configuration && selectedFramework === "detox") {
+      runEnv.DETOX_CONFIGURATION = deviceConfig.configuration;
     }
 
     let cmd, args, cwd;
@@ -412,6 +429,7 @@ server.registerTool(
     } else if (selectedFramework === "detox") {
       cmd = "npx";
       args = ["detox", "test"];
+      if (useDevice) args.push("--configuration", useDevice);
       if (spec) args.push(spec);
       cwd = PROJECT_ROOT;
     
@@ -438,75 +456,101 @@ server.registerTool(
       cwd = PROJECT_ROOT;
     }
 
-    const startTime = Date.now();
-    return new Promise((resolve) => {
-      const child = spawn(cmd, args, {
-        cwd,
-        stdio: ["inherit", "pipe", "pipe"],
-        shell: process.platform === "win32",
-        env: { ...process.env },
-      });
-
-      let stdout = "";
-      let stderr = "";
-      if (child.stdout) {
-        child.stdout.on("data", (d) => {
-          const s = d.toString();
-          stdout += s;
-          process.stdout.write(s);
+    const runTestsOnce = () =>
+      new Promise((resolve) => {
+        const startTime = Date.now();
+        const child = spawn(cmd, args, {
+          cwd,
+          stdio: ["inherit", "pipe", "pipe"],
+          shell: process.platform === "win32",
+          env: runEnv,
         });
-      }
-      if (child.stderr) {
-        child.stderr.on("data", (d) => {
-          const s = d.toString();
-          stderr += s;
-          process.stderr.write(s);
-        });
-      }
-
-      child.on("close", (code) => {
-        const runOutput = [stdout, stderr].filter(Boolean).join("\n").trim();
-        const passed = code === 0;
-        const durationSeconds = Math.round((Date.now() - startTime) / 1000);
-        if (!passed && runOutput) {
-          try {
-            fs.writeFileSync(path.join(PROJECT_ROOT, ".qa-lab-last-failure.log"), runOutput, "utf8");
-          } catch {}
-        }
-        const { passed: p, failed: f } = parseTestRunResult(runOutput, code);
-        appendMetricsEvent({
-          type: "test_run",
-          framework: selectedFramework,
-          spec: spec || undefined,
-          passed: p,
-          failed: f,
-          durationSeconds,
-          exitCode: code ?? 1,
-          failures: !passed ? extractFailuresFromOutput(runOutput) : undefined,
-        });
-        if (passed) saveProjectMemory({ lastRun: { spec: spec || null, framework: selectedFramework, passed: p } });
-        
-        saveProjectMemory({
-          execution: {
-            testFile: spec || "all",
-            passed,
-            duration: durationSeconds,
-            timestamp: new Date().toISOString(),
-            framework: selectedFramework,
-          },
-        });
-        
-        resolve({
-          content: [{ type: "text", text: passed ? "Testes executados com sucesso." : "Falha na execução dos testes." }],
-          structuredContent: {
-            status: passed ? "passed" : "failed",
-            message: passed ? "Tests passed" : "Tests failed",
+        let stdout = "";
+        let stderr = "";
+        if (child.stdout) child.stdout.on("data", (d) => { stdout += d.toString(); process.stdout.write(d); });
+        if (child.stderr) child.stderr.on("data", (d) => { stderr += d.toString(); process.stderr.write(d); });
+        child.on("close", (code) => {
+          const runOutput = [stdout, stderr].filter(Boolean).join("\n").trim();
+          resolve({
+            passed: code === 0,
             exitCode: code ?? 1,
-            runOutput: !passed ? runOutput : undefined,
-          },
+            runOutput,
+            durationSeconds: Math.round((Date.now() - startTime) / 1000),
+          });
         });
       });
+
+    const isSelectorFailure = (out) => /element not found|selector|timeout|locator|cy\.get|page\.locator|Unable to find/i.test(out || "");
+
+    let result = await runTestsOnce();
+    let autoFixed = false;
+
+    if (!result.passed && doAutoFixSelector && spec && isSelectorFailure(result.runOutput) && resolveLLMProvider("complex").apiKey) {
+      const fixResult = await applySelectorFixAndRetry(spec, result.runOutput, selectedFramework);
+      if (fixResult.applied) {
+        autoFixed = true;
+        result = await runTestsOnce();
+      }
+    }
+
+    if (!result.passed && result.runOutput) {
+      try {
+        fs.writeFileSync(path.join(PROJECT_ROOT, ".qa-lab-last-failure.log"), result.runOutput, "utf8");
+      } catch {}
+    }
+
+    const { passed: p, failed: f } = parseTestRunResult(result.runOutput, result.exitCode);
+    appendMetricsEvent({
+      type: "test_run",
+      framework: selectedFramework,
+      spec: spec || undefined,
+      passed: p,
+      failed: f,
+      durationSeconds: result.durationSeconds,
+      exitCode: result.exitCode,
+      failures: !result.passed ? extractFailuresFromOutput(result.runOutput) : undefined,
     });
+    if (result.passed) saveProjectMemory({ lastRun: { spec: spec || null, framework: selectedFramework, passed: p } });
+    saveProjectMemory({
+      execution: {
+        testFile: spec || "all",
+        passed: result.passed,
+        duration: result.durationSeconds,
+        timestamp: new Date().toISOString(),
+        framework: selectedFramework,
+      },
+    });
+
+    const baseMsg = result.passed
+      ? (autoFixed ? "Testes executados com sucesso (após correção automática de seletor)." : "Testes executados com sucesso.")
+      : "Falha na execução dos testes.";
+    const structured = {
+      status: result.passed ? "passed" : "failed",
+      message: result.passed ? "Tests passed" : "Tests failed",
+      exitCode: result.exitCode,
+      runOutput: !result.passed ? result.runOutput : undefined,
+      autoFixed: autoFixed || undefined,
+    };
+
+    if (!result.passed && explainOnFailure && result.runOutput) {
+      const explainResult = await generateFailureExplanation(result.runOutput, spec || undefined);
+      if (explainResult.ok && explainResult.structuredContent) {
+        const oneLine =
+          explainResult.structuredContent.resumoEmUmaFrase ||
+          oneLineFailureSummary(result.runOutput, selectedFramework, explainResult.structuredContent.oQueAconteceu, explainResult.structuredContent.sugestaoCorrecao);
+        structured.explanation = explainResult.structuredContent.formattedText;
+        structured.resumoEmUmaFrase = oneLine;
+        return {
+          content: [{ type: "text", text: `${baseMsg}\n\n**${oneLine}**\n\n---\n\n${explainResult.structuredContent.formattedText}` }],
+          structuredContent: structured,
+        };
+      }
+    }
+
+    return {
+      content: [{ type: "text", text: baseMsg }],
+      structuredContent: structured,
+    };
   }
 );
 
@@ -629,7 +673,7 @@ O código de referência pode estar em QUALQUER framework (Cypress, Robot, Playw
 - Retorne SOMENTE o código, sem markdown
 
 ${UNIVERSAL_TEST_PRACTICES}
-${(fw === "appium" || fw === "detox") ? `\nIMPORTANTE: ${MOBILE_MAPPING_LESSON}` : ""}`
+${(fw === "appium" || fw === "detox") ? `\nIMPORTANTE: ${MOBILE_MAPPING_LESSON}\n\nHIERARQUIA DE SELETORES: ${MOBILE_SELECTOR_HIERARCHY}` : ""}`
       : `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
 Framework: ${fw}
 
@@ -642,7 +686,7 @@ Regras:
 - Jest/Vitest: describe(), test(), expect()
 - Robot: Keywords, [Tags], Steps
 - pytest: def test_*, assert, fixtures
-- Código limpo. Retorne SOMENTE o código, sem markdown${(fw === "appium" || fw === "detox") ? `\n\nIMPORTANTE (Appium/Detox): ${MOBILE_MAPPING_LESSON}` : ""}`;
+- Código limpo. Retorne SOMENTE o código, sem markdown${(fw === "appium" || fw === "detox") ? `\n\nIMPORTANTE (Appium/Detox): ${MOBILE_MAPPING_LESSON}\n\nHIERARQUIA: ${MOBILE_SELECTOR_HIERARCHY}` : ""}`;
 
     const userPrompt = `Contexto do projeto:
 ${contextWithMemory.slice(0, 5000)}
@@ -861,8 +905,10 @@ server.registerTool(
 // POR QUE FALHOU? - Explicação de falhas para juniores (escalável)
 // ============================================================================
 
-function formatFailureExplanation(data) {
-  const lines = [
+function formatFailureExplanation(data, oneLine = null) {
+  const summary = oneLine || data.resumoEmUmaFrase || "";
+  const lines = summary ? [`**${summary}**`, "", "---", ""] : [];
+  lines.push(
     "## O que aconteceu",
     "",
     data.oQueAconteceu || "",
@@ -878,7 +924,7 @@ function formatFailureExplanation(data) {
     ...(Array.isArray(data.oQueFazerAgora)
       ? data.oQueFazerAgora.map((s, i) => `${i + 1}. ${s}`)
       : [data.oQueFazerAgora || ""]),
-  ];
+  );
   if (data.sugestaoCorrecao) {
     lines.push("", "## Sugestão de correção", "", "```" + (data.framework || "js"), data.sugestaoCorrecao, "```");
   }
@@ -922,6 +968,106 @@ async function callLlmForExplanation(provider, apiKey, baseUrl, model, systemPro
   return data.choices?.[0]?.message?.content || "";
 }
 
+/** Aplica correção de seletor no arquivo e retorna { applied }. Usado por run_tests com autoFixSelector. */
+async function applySelectorFixAndRetry(testFilePath, errorOutput, framework) {
+  const structure = detectProjectStructure();
+  const fw = framework || inferFrameworkFromFile(testFilePath.split("/").pop(), structure);
+  const fullPath = path.join(PROJECT_ROOT, testFilePath.replace(/^\//, "").replace(/\\/g, "/"));
+  if (!fs.existsSync(fullPath)) return { applied: false };
+
+  let testCode = "";
+  try {
+    testCode = fs.readFileSync(fullPath, "utf8");
+  } catch {
+    return { applied: false };
+  }
+
+  const llm = resolveLLMProvider("complex");
+  if (!llm.apiKey) return { applied: false };
+  const { provider, apiKey, baseUrl, model } = llm;
+
+  const systemPrompt = `Você é um especialista em testes E2E. O teste falhou porque um seletor não encontrou o elemento.
+Retorne APENAS em JSON (sem markdown) com a chave:
+- codigoCorrigido: string (o ARQUIVO COMPLETO do teste corrigido, com imports e toda a estrutura. Substitua o seletor quebrado por um mais resiliente: data-testid, role, ~accessibility-id, ou XPath relacional com tipo específico.)
+
+Framework: ${fw}. Priorize seletores estáveis.`;
+
+  const userPrompt = `Output do erro:\n---\n${(errorOutput || "").slice(0, 8000)}\n---\n\nCódigo atual:\n---\n${testCode.slice(0, 6000)}\n---`;
+
+  try {
+    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    const data = JSON.parse(raw);
+    const fixed = (data.codigoCorrigido || "").trim();
+    if (fixed.length > 50 && (/describe|it\(|test\(|cy\.|page\.|\$\(/.test(fixed))) {
+      fs.writeFileSync(fullPath, fixed, "utf8");
+      return { applied: true };
+    }
+  } catch {}
+  return { applied: false };
+}
+
+/** Gera explicação de falha via LLM. Usado por por_que_falhou e qa_auto. Retorna { ok, structuredContent }. */
+async function generateFailureExplanation(resolvedOutput, testFilePath = null) {
+  const structure = detectProjectStructure();
+  const fw = structure.testFrameworks[0] || "unknown";
+  let testCode = "";
+  if (testFilePath) {
+    const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
+    const fullPath = path.join(PROJECT_ROOT, normalized);
+    if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+      try {
+        testCode = fs.readFileSync(fullPath, "utf8");
+      } catch {}
+    }
+  }
+  const llm = resolveLLMProvider("complex");
+  if (!llm.apiKey) return { ok: false, structuredContent: null };
+  const { provider, apiKey, baseUrl, model } = llm;
+  const fwHints = {
+    webdriverio: "WebdriverIO (describe/it, $, browser.$)",
+    appium: "Appium/WebdriverIO (mobile, $, browser.$)",
+    playwright: "Playwright (test, page, locator)",
+    cypress: "Cypress (cy.get, cy.click)",
+    jest: "Jest (describe, test, expect)",
+    vitest: "Vitest (describe, test, expect)",
+    robot: "Robot Framework",
+    pytest: "pytest",
+  };
+  const systemPrompt = `Você é um mentor de QA. Analise o output de falha e responda em JSON (apenas o JSON, sem markdown) com as chaves:
+- resumoEmUmaFrase: string (OBRIGATÓRIO - uma frase: "Falhou porque X. Solução: Y.")
+- oQueAconteceu: string (explicação em português do que aconteceu, simples)
+- porQueProvavelmenteFalhou: array de strings (lista de possíveis causas)
+- oQueFazerAgora: array de strings (passos numerados do que fazer)
+- sugestaoCorrecao: string ou null (código de correção no formato do framework)
+- conceito: string ou null
+- framework: string (framework do projeto)
+
+Framework: ${fw}. ${fwHints[fw] || ""}
+Responda APENAS com o JSON válido, sem texto antes ou depois.`;
+  const userPrompt = `Output do terminal/log (teste falhou):
+---
+${resolvedOutput.slice(0, 12000)}
+---
+${testCode ? `\nCódigo do teste:\n---\n${testCode.slice(0, 6000)}\n---` : ""}`;
+  try {
+    let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    let data = {};
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { oQueAconteceu: raw.slice(0, 500) || "Não foi possível parsear.", porQueProvavelmenteFalhou: [], oQueFazerAgora: [], sugestaoCorrecao: null, conceito: null, framework: fw };
+    }
+    data.framework = data.framework || fw;
+    const oneLine = oneLineFailureSummary(resolvedOutput, fw, data.oQueAconteceu, data.sugestaoCorrecao);
+    const formattedText = formatFailureExplanation(data, data.resumoEmUmaFrase || oneLine);
+    return { ok: true, formattedText, structuredContent: { ...data, formattedText } };
+  } catch (err) {
+    return { ok: false, error: err.message, structuredContent: null };
+  }
+}
+
 /** Gera explicação de falha (o que aconteceu, por que, o que fazer, sugestão). Usado por por_que_falhou e run_tests_and_explain. */
 
 server.registerTool(
@@ -946,9 +1092,6 @@ server.registerTool(
     }),
   },
   async ({ errorOutput, testFilePath }) => {
-    const structure = detectProjectStructure();
-    const fw = structure.testFrameworks[0] || "unknown";
-
     let resolvedOutput = errorOutput?.trim() || "";
     if (!resolvedOutput) {
       const lastFailurePath = path.join(PROJECT_ROOT, ".qa-lab-last-failure.log");
@@ -968,97 +1111,36 @@ server.registerTool(
       };
     }
 
-    let testCode = "";
-    if (testFilePath) {
-      const normalized = testFilePath.replace(/^\//, "").replace(/\\/g, "/");
-      const fullPath = path.join(PROJECT_ROOT, normalized);
-      if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
-        try {
-          testCode = fs.readFileSync(fullPath, "utf8");
-        } catch {}
-      }
-    }
-
-    const llm = resolveLLMProvider("complex");
-    if (!llm.apiKey) {
-      return {
-        content: [{
-          type: "text",
-          text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env do projeto para usar a explicação com LLM.",
-        }],
-        structuredContent: { ok: false, error: "No API key configured" },
-      };
-    }
-    const { provider, apiKey, baseUrl, model } = llm;
-
-    const fwHints = {
-      webdriverio: "WebdriverIO (describe/it, $, browser.$)",
-      appium: "Appium/WebdriverIO (mobile, $, browser.$)",
-      playwright: "Playwright (test, page, locator)",
-      cypress: "Cypress (cy.get, cy.click)",
-      jest: "Jest (describe, test, expect)",
-      vitest: "Vitest (describe, test, expect)",
-      robot: "Robot Framework",
-      pytest: "pytest",
-    };
-
-    const systemPrompt = `Você é um mentor de QA. Analise o output de falha e responda em JSON (apenas o JSON, sem markdown) com as chaves:
-- oQueAconteceu: string (explicação em português do que aconteceu, simples)
-- porQueProvavelmenteFalhou: array de strings (lista de possíveis causas, uma por item)
-- oQueFazerAgora: array de strings (passos numerados do que fazer)
-- sugestaoCorrecao: string ou null (código de correção se aplicável, no formato do framework)
-- conceito: string ou null (ex: "Flaky test = teste intermitente. Geralmente por timing ou seletores frágeis.")
-- framework: string (framework do projeto)
-
-Framework do projeto: ${fw}. ${fwHints[fw] || ""}
-Responda APENAS com o JSON válido, sem texto antes ou depois.`;
-
-    const userPrompt = `Output do terminal/log (teste falhou):
----
-${resolvedOutput.slice(0, 12000)}
----
-${testCode ? `\nCódigo do teste que falhou:\n---\n${testCode.slice(0, 6000)}\n---` : ""}`;
-
-    try {
-      let raw = await callLlmForExplanation(provider, apiKey, baseUrl, model, systemPrompt, userPrompt);
-      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-
-      let data = {};
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        data = {
-          oQueAconteceu: raw.slice(0, 500) || "Não foi possível parsear a resposta.",
-          porQueProvavelmenteFalhou: [],
-          oQueFazerAgora: [],
-          sugestaoCorrecao: null,
-          conceito: null,
-          framework: fw,
+    const explainResult = await generateFailureExplanation(resolvedOutput, testFilePath);
+    if (!explainResult.ok) {
+      if (!resolveLLMProvider("complex").apiKey) {
+        return {
+          content: [{
+            type: "text",
+            text: "Configure GROQ_API_KEY, GEMINI_API_KEY ou OPENAI_API_KEY no .env do projeto para usar a explicação com LLM.",
+          }],
+          structuredContent: { ok: false, error: "No API key configured" },
         };
       }
-
-      data.framework = data.framework || fw;
-      const formattedText = formatFailureExplanation(data);
-
       return {
-        content: [{ type: "text", text: formattedText }],
-        structuredContent: {
-          ok: true,
-          oQueAconteceu: data.oQueAconteceu,
-          porQueProvavelmenteFalhou: data.porQueProvavelmenteFalhou,
-          oQueFazerAgora: data.oQueFazerAgora,
-          sugestaoCorrecao: data.sugestaoCorrecao ?? null,
-          conceito: data.conceito ?? null,
-          framework: data.framework,
-          formattedText,
-        },
-      };
-    } catch (err) {
-      return {
-        content: [{ type: "text", text: `Erro ao analisar: ${err.message}` }],
-        structuredContent: { ok: false, error: err.message },
+        content: [{ type: "text", text: `Erro ao analisar: ${explainResult.error || "erro desconhecido"}` }],
+        structuredContent: { ok: false, error: explainResult.error },
       };
     }
+    const sc = explainResult.structuredContent;
+    return {
+      content: [{ type: "text", text: sc.formattedText }],
+      structuredContent: {
+        ok: true,
+        oQueAconteceu: sc.oQueAconteceu,
+        porQueProvavelmenteFalhou: sc.porQueProvavelmenteFalhou,
+        oQueFazerAgora: sc.oQueFazerAgora,
+        sugestaoCorrecao: sc.sugestaoCorrecao ?? null,
+        conceito: sc.conceito ?? null,
+        framework: sc.framework,
+        formattedText: sc.formattedText,
+      },
+    };
   }
 );
 
@@ -1139,7 +1221,7 @@ server.registerTool(
     inputSchema: z.object({
       testFilePath: z.string().describe("Caminho do arquivo de teste que falhou (ex: specs/login.spec.js)."),
       errorOutput: z.string().optional().describe("Output do terminal da falha. Se vazio, lê de .qa-lab-last-failure.log."),
-      framework: z.enum(["cypress", "playwright", "webdriverio", "appium"]).optional().describe("Framework do teste. Detectado automaticamente se omitido."),
+      framework: z.enum(["cypress", "playwright", "webdriverio", "appium", "detox"]).optional().describe("Framework do teste. Detectado automaticamente se omitido."),
     }),
     outputSchema: z.object({
       ok: z.boolean(),
@@ -1195,16 +1277,22 @@ server.registerTool(
       cypress: "Cypress: cy.get('[data-testid=...]'), cy.contains(), cy.get('button').filter(':visible')",
       playwright: "Playwright: page.getByRole(), page.getByTestId(), page.locator('button:has-text(\"...\")')",
       webdriverio: "WebdriverIO: $('[data-testid=...]'), $('button=Texto')",
-      appium: "Appium: $('~accessibility-id'), $('//android.view.View')",
+      appium: `Appium (HIERARQUIA ÚNICA): 1) id: $('~accessibility-id') ou $('~content-desc'). 2) XPath relacional: âncora estável + eixos + TIPO ESPECÍFICO (android.widget.Button, XCUIElementTypeButton). NUNCA use * em XPath — quebra por timing e múltiplos matches. Ex: //android.widget.LinearLayout[@resource-id='login_form']/descendant::android.widget.Button[@text='Entrar']. 3) resource-id. Explique a hierarquia.`,
+      detox: `Detox: testID > accessibilityLabel > text. Explique por que é mais estável.`,
     };
+
+    const mobileRules = (fw === "appium" || fw === "detox")
+      ? "\n\nMOBILE: 1) id. 2) XPath relacional: âncora + eixos + TIPO ESPECÍFICO (android.widget.Button, XCUIElementTypeButton). NUNCA use * — quebra por timing. Ex: //android.widget.LinearLayout[@resource-id='login_form']/descendant::android.widget.Button[@text='Entrar']. 3) resource-id. Explique por que o seletor é forte."
+      : "";
 
     const systemPrompt = `Você é um especialista em testes E2E. O teste falhou porque um seletor não encontrou o elemento (UI mudou).
 Analise o erro e o código e responda APENAS em JSON (sem markdown) com as chaves:
 - selectorSugerido: string (o novo seletor recomendado, mais resiliente)
 - codigoCorrigido: string (bloco de código completo corrigido, apenas a parte relevante do teste)
-- explicacao: string (breve explicação em português: por que o antigo falhou e por que o novo é melhor)
+- explicacao: string (breve explicação em português: por que o antigo falhou e por que o novo é melhor. Em mobile: mencione a hierarquia de estabilidade)
 
 Priorize nesta ordem: data-testid > role + accessible name > texto visível > estrutura. Evite classes CSS e IDs que mudam.
+${mobileRules}
 
 Framework: ${fw}. ${fwHints[fw] || ""}`;
 

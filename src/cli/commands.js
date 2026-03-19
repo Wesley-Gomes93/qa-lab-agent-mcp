@@ -47,6 +47,8 @@ COMANDOS CLI:
   auto <descrição> [--max-retries N]    Modo autônomo: gera teste, roda, corrige e aprende (default: 3 tentativas)
   stats                                 Estatísticas de aprendizado (taxa de sucesso, correções, etc.)
   report [--full]                        Relatório de evolução e aprendizado (--full = completo com recomendações)
+  metrics-report [--json] [--output FILE] [path1 path2 ...]  Relatório de métricas (método, resultado). Sem paths = projeto atual.
+  flaky-report [--runs N] [--spec FILE] [--output FILE]      Detecta testes flaky: roda N vezes (default 3), identifica intermitência e causa provável
   detect [--json]                       Detecta frameworks e estrutura
   route <tarefa>                        Sugere qual ferramenta usar
   list                                  Lista ferramentas MCP disponíveis
@@ -58,6 +60,7 @@ EXEMPLOS:
   mcp-lab-agent analyze                         # Análise completa + recomendações
   mcp-lab-agent auto "login flow" --max-retries 5
   mcp-lab-agent stats
+  mcp-lab-agent flaky-report --runs 5 --output flaky.md
   mcp-lab-agent detect --json
 
 INTEGRAÇÃO MCP (Cursor/Cline/Windsurf):
@@ -194,7 +197,359 @@ ${format === "full" && recommendations.length > 0 ? `\nRecomendações para apri
     return true;
   }
 
+  if (cmd === "metrics-report") {
+    await handleMetricsReportCommand();
+    return true;
+  }
+
+  if (cmd === "flaky-report") {
+    await handleFlakyReportCommand();
+    return true;
+  }
+
   return false;
+}
+
+/**
+ * Gera relatório de métricas a partir de .qa-lab-memory.json e .qa-lab-metrics.json.
+ * Suporta múltiplos projetos: mcp-lab-agent metrics-report /path/proj1 /path/proj2
+ */
+async function handleMetricsReportCommand() {
+  const argv = process.argv.slice(2);
+  const jsonOnly = argv.includes("--json");
+  const outputIdx = argv.indexOf("--output");
+  const outputFile = outputIdx !== -1 && argv[outputIdx + 1] ? argv[outputIdx + 1] : null;
+  const paths = argv.filter((a) => {
+    if (a.startsWith("--") || a === "metrics-report") return false;
+    if (outputIdx !== -1 && a === argv[outputIdx + 1]) return false; // exclui valor de --output
+    return true;
+  });
+
+  const projectDirs = paths.length > 0 ? paths : [PROJECT_ROOT];
+
+  const reports = [];
+  for (const dir of projectDirs) {
+    const resolved = path.resolve(dir);
+    if (!fs.existsSync(resolved)) {
+      console.warn(`⚠️ Diretório não encontrado: ${dir}`);
+      continue;
+    }
+    const memoryPath = path.join(resolved, ".qa-lab-memory.json");
+    const metricsPath = path.join(resolved, ".qa-lab-metrics.json");
+
+    let memory = {};
+    let metrics = { events: [] };
+    if (fs.existsSync(memoryPath)) {
+      try {
+        memory = JSON.parse(fs.readFileSync(memoryPath, "utf8"));
+      } catch {}
+    }
+    if (fs.existsSync(metricsPath)) {
+      try {
+        metrics = JSON.parse(fs.readFileSync(metricsPath, "utf8"));
+      } catch {}
+    }
+
+    const events = metrics.events || [];
+    const executions = memory.executions || [];
+    const learnings = memory.learnings || [];
+
+    const byEventType = {};
+    events.forEach((e) => {
+      const t = e.type || "unknown";
+      byEventType[t] = (byEventType[t] || 0) + 1;
+    });
+
+    const testRuns = events.filter((e) => e.type === "test_run");
+    const testRunPassed = testRuns.filter((e) => e.exitCode === 0).length;
+    const testRunFailed = testRuns.filter((e) => e.exitCode !== 0).length;
+    const byFramework = {};
+    testRuns.forEach((e) => {
+      const f = e.framework || "unknown";
+      byFramework[f] = (byFramework[f] || { total: 0, passed: 0, failed: 0 });
+      byFramework[f].total++;
+      if (e.exitCode === 0) byFramework[f].passed++;
+      else byFramework[f].failed++;
+    });
+
+    const byLearningType = {};
+    learnings.forEach((l) => {
+      const t = l.type || "unknown";
+      byLearningType[t] = (byLearningType[t] || { total: 0, success: 0 });
+      byLearningType[t].total++;
+      if (l.success) byLearningType[t].success++;
+    });
+
+    const execByFramework = {};
+    executions.forEach((e) => {
+      const f = e.framework || "unknown";
+      execByFramework[f] = (execByFramework[f] || { total: 0, passed: 0 });
+      execByFramework[f].total++;
+      if (e.passed) execByFramework[f].passed++;
+    });
+
+    const projectName = path.basename(resolved);
+    reports.push({
+      project: projectName,
+      path: resolved,
+      summary: {
+        eventsTotal: events.length,
+        eventTypes: byEventType,
+        testRuns: { total: testRuns.length, passed: testRunPassed, failed: testRunFailed },
+        byFramework,
+        executions: { total: executions.length, byFramework: execByFramework },
+        learnings: { total: learnings.length, byType: byLearningType },
+        lastUpdated: metrics.lastUpdated || memory.updatedAt,
+      },
+      recentEvents: events.slice(-20).map((e) => ({
+        type: e.type,
+        timestamp: e.timestamp,
+        framework: e.framework,
+        spec: e.spec,
+        passed: e.passed,
+        failed: e.failed,
+        exitCode: e.exitCode,
+        durationSeconds: e.durationSeconds,
+      })),
+    });
+  }
+
+  if (jsonOnly) {
+    const out = JSON.stringify({ projects: reports, generatedAt: new Date().toISOString() }, null, 2);
+    if (outputFile) fs.writeFileSync(outputFile, out, "utf8");
+    else console.log(out);
+    return;
+  }
+
+  let report = `# Relatório de Métricas — mcp-lab-agent\n\n`;
+  report += `Gerado em: ${new Date().toISOString()}\n`;
+  report += `Projetos: ${reports.length}\n\n`;
+  report += `---\n\n`;
+
+  for (const r of reports) {
+    report += `## ${r.project}\n\n`;
+    report += `**Caminho:** \`${r.path}\`\n\n`;
+
+    const s = r.summary;
+    report += `### Eventos (.qa-lab-metrics.json)\n\n`;
+    report += `| Método/Tipo | Total | Descrição |\n`;
+    report += `|-------------|-------|\n`;
+    for (const [t, count] of Object.entries(s.eventTypes || {})) {
+      let desc = "";
+      if (t === "test_run") desc = `Execução de testes (passed/failed por framework abaixo)`;
+      else if (t === "bug_reported") desc = "Bug report gerado";
+      else desc = t;
+      report += `| ${t} | ${count} | ${desc} |\n`;
+    }
+    if (Object.keys(s.eventTypes || {}).length === 0) {
+      report += `| — | 0 | Nenhum evento registrado |\n`;
+    }
+    report += `\n`;
+
+    if (s.testRuns?.total > 0) {
+      report += `### Resultado de Execuções (run_tests)\n\n`;
+      report += `| Framework | Total | Passed | Failed | Taxa sucesso |\n`;
+      report += `|-----------|-------|--------|--------|---------------|\n`;
+      for (const [fw, data] of Object.entries(s.byFramework || {})) {
+        const rate = data.total > 0 ? Math.round((data.passed / data.total) * 100) : 0;
+        report += `| ${fw} | ${data.total} | ${data.passed} | ${data.failed} | ${rate}% |\n`;
+      }
+      report += `\n`;
+      report += `**Resumo:** ${s.testRuns.passed} passed, ${s.testRuns.failed} failed (total: ${s.testRuns.total})\n\n`;
+    }
+
+    if (s.executions?.total > 0) {
+      report += `### Histórico de Execuções (memory)\n\n`;
+      report += `| Framework | Total | Passed | Taxa |\n`;
+      report += `|-----------|-------|--------|------|\n`;
+      for (const [fw, data] of Object.entries(s.executions.byFramework || {})) {
+        const rate = data.total > 0 ? Math.round((data.passed / data.total) * 100) : 0;
+        report += `| ${fw} | ${data.total} | ${data.passed} | ${rate}% |\n`;
+      }
+      report += `\n`;
+    }
+
+    if (s.learnings?.total > 0) {
+      report += `### Aprendizados (.qa-lab-memory.json)\n\n`;
+      report += `| Tipo | Total | Sucesso | Taxa |\n`;
+      report += `|------|-------|---------|------|\n`;
+      for (const [t, data] of Object.entries(s.learnings.byType || {})) {
+        const rate = data.total > 0 ? Math.round((data.success / data.total) * 100) : 0;
+        report += `| ${t} | ${data.total} | ${data.success} | ${rate}% |\n`;
+      }
+      report += `\n`;
+    }
+
+    if (r.recentEvents?.length > 0) {
+      report += `### Últimos 20 eventos\n\n`;
+      report += `| Data | Tipo | Framework | Spec | Passed | Failed | Exit | Duração(s) |\n`;
+      report += `|------|------|-----------|------|--------|--------|------|------------|\n`;
+      for (const e of r.recentEvents.slice(-10)) {
+        const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : "—";
+        report += `| ${ts} | ${e.type || "—"} | ${e.framework || "—"} | ${(e.spec || "—").slice(0, 20)} | ${e.passed ?? "—"} | ${e.failed ?? "—"} | ${e.exitCode ?? "—"} | ${e.durationSeconds ?? "—"} |\n`;
+      }
+      report += `\n`;
+    }
+
+    if (s.lastUpdated) {
+      report += `*Última atualização: ${s.lastUpdated}*\n\n`;
+    }
+    report += `---\n\n`;
+  }
+
+  if (outputFile) {
+    fs.writeFileSync(outputFile, report, "utf8");
+    console.log(`\n📄 Relatório salvo em: ${outputFile}\n`);
+  } else {
+    console.log(report);
+  }
+}
+
+/**
+ * Detecta testes flaky: roda suite N vezes, identifica intermitência e causa provável.
+ * Uso: mcp-lab-agent flaky-report [--runs N] [--spec FILE] [--output FILE]
+ */
+async function handleFlakyReportCommand() {
+  const argv = process.argv.slice(2);
+  const runsIdx = argv.indexOf("--runs");
+  const runs = runsIdx !== -1 && argv[runsIdx + 1] ? parseInt(argv[runsIdx + 1], 10) : 3;
+  const specIdx = argv.indexOf("--spec");
+  const spec = specIdx !== -1 && argv[specIdx + 1] ? argv[specIdx + 1] : null;
+  const outputIdx = argv.indexOf("--output");
+  const outputFile = outputIdx !== -1 && argv[outputIdx + 1] ? argv[outputIdx + 1] : null;
+
+  const structure = detectProjectStructure();
+  if (!structure.hasTests) {
+    console.error("❌ Nenhum framework de teste detectado.");
+    process.exit(1);
+  }
+
+  const fw = structure.testFrameworks[0];
+  const { cmd, args, cwd } = getRunCommand(structure, fw, spec);
+
+  console.log(`\n🔬 Relatório de testes flaky\n`);
+  console.log(`Framework: ${fw}`);
+  console.log(`Execuções: ${runs}`);
+  if (spec) console.log(`Spec: ${spec}`);
+  console.log(`\nRodando testes ${runs}x...\n`);
+
+  const results = [];
+  for (let i = 0; i < runs; i++) {
+    process.stdout.write(`  [${i + 1}/${runs}] `);
+    const result = await runTestsOnce(cmd, args, cwd);
+    results.push(result);
+    process.stdout.write(result.passed ? "✅ passou\n" : "❌ falhou\n");
+  }
+
+  const passed = results.filter((r) => r.passed).length;
+  const failed = results.filter((r) => !r.passed).length;
+  const isFlaky = passed > 0 && failed > 0;
+  const failureOutput = results.find((r) => !r.passed)?.output || "";
+
+  const flakyAnalysis = failureOutput ? detectFlakyPatterns(failureOutput) : null;
+  const probableCause = flakyAnalysis?.isLikelyFlaky
+    ? flakyAnalysis.patterns.map((p) => `${p.pattern}: ${p.suggestion}`).join("; ")
+    : "Não foi possível inferir (rode com explainOnFailure para análise detalhada)";
+
+  let report = `# Relatório de testes flaky — mcp-lab-agent\n\n`;
+  report += `Gerado em: ${new Date().toISOString()}\n`;
+  report += `Framework: ${fw}\n`;
+  report += `Execuções: ${runs}\n`;
+  if (spec) report += `Spec: ${spec}\n`;
+  report += `\n---\n\n`;
+
+  report += `## Resultado\n\n`;
+  report += `| Métrica | Valor |\n`;
+  report += `|---------|-------|\n`;
+  report += `| Passou | ${passed}/${runs} |\n`;
+  report += `| Falhou | ${failed}/${runs} |\n`;
+  report += `| Taxa de falha | ${Math.round((failed / runs) * 100)}% |\n`;
+  report += `| **Flaky?** | ${isFlaky ? "⚠️ SIM" : failed === runs ? "❌ Falha consistente" : "✅ Estável"} |\n\n`;
+
+  if (isFlaky) {
+    report += `## Causa provável\n\n`;
+    report += `${probableCause}\n\n`;
+    if (flakyAnalysis?.patterns?.length) {
+      report += `### Sugestões\n\n`;
+      flakyAnalysis.patterns.forEach((p) => {
+        report += `- **${p.pattern}:** ${p.suggestion}\n`;
+      });
+      report += `\n`;
+    }
+  }
+
+  if (failed > 0 && failureOutput) {
+    report += `## Última saída de falha (trecho)\n\n`;
+    report += "```\n";
+    report += failureOutput.slice(0, 1500).trim();
+    if (failureOutput.length > 1500) report += "\n...";
+    report += "\n```\n\n";
+  }
+
+  report += `---\n\n`;
+  report += `*Use \`mcp-lab-agent por_que_falhou\` (via MCP) ou \`run_tests\` com \`explainOnFailure: true\` para análise detalhada.*\n`;
+
+  if (outputFile) {
+    fs.writeFileSync(outputFile, report, "utf8");
+    console.log(`\n📄 Relatório salvo em: ${outputFile}\n`);
+  } else {
+    console.log("\n" + report);
+  }
+
+  process.exit(isFlaky ? 1 : 0);
+}
+
+function getRunCommand(structure, fw, spec) {
+  const cwdMap = {
+    cypress: structure.testDirs.includes("cypress") ? path.join(PROJECT_ROOT, "cypress") : structure.testDirs[0] ? path.join(PROJECT_ROOT, structure.testDirs[0]) : PROJECT_ROOT,
+    playwright: structure.testDirs.includes("playwright") ? path.join(PROJECT_ROOT, "playwright") : structure.testDirs[0] ? path.join(PROJECT_ROOT, structure.testDirs[0]) : PROJECT_ROOT,
+  };
+  const cwd = cwdMap[fw] || getFrameworkCwd(structure, ["specs", "tests", "e2e"]) || PROJECT_ROOT;
+
+  if (fw === "cypress") {
+    return { cmd: "npx", args: spec ? ["cypress", "run", "--spec", spec] : ["cypress", "run"], cwd };
+  }
+  if (fw === "playwright") {
+    return { cmd: "npx", args: spec ? ["playwright", "test", spec] : ["playwright", "test"], cwd };
+  }
+  if (fw === "webdriverio" || fw === "appium") {
+    return { cmd: "npx", args: spec ? ["wdio", "run", spec] : ["wdio", "run"], cwd: PROJECT_ROOT };
+  }
+  if (fw === "jest") {
+    return { cmd: "npx", args: spec ? ["jest", spec] : ["jest"], cwd: PROJECT_ROOT };
+  }
+  if (fw === "vitest") {
+    return { cmd: "npx", args: ["vitest", "run", ...(spec ? [spec] : [])], cwd: PROJECT_ROOT };
+  }
+  if (fw === "mocha") {
+    return { cmd: "npx", args: spec ? ["mocha", spec] : ["mocha"], cwd: PROJECT_ROOT };
+  }
+  if (fw === "pytest") {
+    return { cmd: "pytest", args: spec ? [spec] : [], cwd: PROJECT_ROOT };
+  }
+  if (fw === "robot") {
+    return { cmd: "robot", args: spec ? [spec] : [structure.testDirs[0] || "tests"], cwd: PROJECT_ROOT };
+  }
+  return { cmd: "npm", args: ["test"], cwd: PROJECT_ROOT };
+}
+
+function runTestsOnce(cmd, args, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, {
+      cwd,
+      stdio: ["inherit", "pipe", "pipe"],
+      shell: process.platform === "win32",
+      env: { ...process.env },
+    });
+    let stdout = "";
+    let stderr = "";
+    if (child.stdout) child.stdout.on("data", (d) => { stdout += d.toString(); });
+    if (child.stderr) child.stderr.on("data", (d) => { stderr += d.toString(); });
+    child.on("close", (code) => {
+      const output = [stdout, stderr].filter(Boolean).join("\n");
+      resolve({ passed: code === 0, code: code ?? 1, output });
+    });
+  });
 }
 
 async function handleAutoCommand() {

@@ -4,7 +4,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Sistema de inteligência em qualidade de software.** Executa testes, analisa causas de falha, corrige automaticamente e aprende padrões que melhoram as próximas gerações. Não é ferramenta de QA — é um sistema que entende qualidade. Integra ao Cursor, Cline, Windsurf ou Slack.
+**Assistente de teste que aprende com falhas.** Reduz tempo de debug, elimina flaky e mantém seletores estáveis. Executa testes, analisa causas de falha, corrige automaticamente e aprende padrões que melhoram as próximas gerações. Integra ao Cursor, Cline, Windsurf ou Slack.
 
 ```bash
 npx mcp-lab-agent auto "login flow" --max-retries 5
@@ -12,7 +12,9 @@ npx mcp-lab-agent auto "login flow" --max-retries 5
 
 **1 comando. Análise completa.**
 
-> Testes falham e você não sabe por quê? Executores rodam mas não aprendem. O mcp-lab-agent analisa causas, corrige e acumula conhecimento.
+> Teste falhou? Em 30 segundos: o que aconteceu, por que e como corrigir. O mcp-lab-agent analisa causas, corrige e acumula conhecimento.
+
+**Foco:** [Top 3 problemas de QA](docs/TOP3_QA_PROBLEMAS_E_ROADMAP.md) — flaky, "por que falhou?", manutenção de seletores.
 
 ---
 
@@ -105,6 +107,8 @@ Adicione ao `~/.cursor/mcp.json`:
 ```
 
 Use no chat: *"Detecte a estrutura do meu projeto"*, *"Gere teste para login"*, *"Por que o teste falhou?"*, *"Avalie http://localhost:3000 no browser"*.
+
+**run_tests com device e auto-fix:** Ao pedir *"Roda o teste X"*, o agente detecta o device (de `qa-lab-agent.config.json`, `wdio.conf` ou `.detoxrc`), executa o fluxo e, se falhar por seletor, aplica correção automaticamente e tenta novamente.
 
 ### Slack Bot
 

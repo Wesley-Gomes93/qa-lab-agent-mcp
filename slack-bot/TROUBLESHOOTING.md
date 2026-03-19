@@ -47,16 +47,52 @@ O `~/.cursor/mcp.json` precisa ter a seção `qa-lab-agent.slack`:
 - `appToken` — Basic Information → App-Level Tokens (scope `connections:write`, começa com `xapp-`) — só para Socket Mode
 - `useLocal: true` — analisa o projeto local (pasta atual) em vez de clonar um repo
 
-### 4. Rodar o diagnóstico
+### 4. Bot identifica o projeto mas não vê os testes
+
+**Causa comum:** O bot analisa a pasta de onde foi **iniciado**. Se você rodou `npx mcp-lab-agent slack-bot` de uma pasta que não é a raiz do projeto (ex.: home, ou outra pasta), ele não vai encontrar os testes.
+
+**Solução:** Configure `workDir` no `mcp.json` com o **caminho completo** da pasta do projeto que contém os testes:
+
+```json
+{
+  "qa-lab-agent": {
+    "slack": {
+      "botToken": "xoxb-...",
+      "appToken": "xapp-...",
+      "useLocal": true,
+      "workDir": "/caminho/completo/para/seu-projeto-com-testes"
+    }
+  }
+}
+```
+
+Exemplo no Windows: `"workDir": "C:\\Users\\SeuUsuario\\Desktop\\e2e-test-automation"`  
+Exemplo no macOS/Linux: `"workDir": "/Users/wesley/Desktop/e2e-test-automation"`
+
+**Alternativa:** Inicie o bot **de dentro da pasta do projeto**:
 
 ```bash
-cd slack-bot
-npm run check
+cd /caminho/para/seu-projeto-com-testes
+npx mcp-lab-agent slack-bot
+```
+
+**Se os testes estão em pasta não padrão** (ex.: `cypress/e2e`, `packages/app/tests`), crie `qa-lab-agent.config.json` na raiz do projeto:
+
+```json
+{
+  "testDirs": ["e2e", "cypress", "tests"]
+}
+```
+
+### 5. Rodar o diagnóstico
+
+```bash
+npm run slack-bot:check
 ```
 
 Corrija qualquer item marcado com ❌.
 
-### 5. Conferir se o bot está rodando
+### 6. Conferir se o bot está rodando
 
 Ao subir com `npm start`, deve aparecer:
 
@@ -65,7 +101,7 @@ Ao subir com `npm start`, deve aparecer:
 
 Se der erro ao iniciar, leia a mensagem — geralmente indica token inválido ou faltando.
 
-### 6. Firewall / proxy corporativo
+### 7. Firewall / proxy corporativo
 
 Em redes corporativas, às vezes o WebSocket (Socket Mode) é bloqueado. Tente:
 

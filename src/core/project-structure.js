@@ -235,6 +235,26 @@ export function detectProjectStructure() {
 
   if (structure.testDirs.includes("mobile")) hints.push("mobile-dir");
 
+  // testDirs custom no qa-lab-agent.config.json (override ou complemento)
+  const configPath = path.join(PROJECT_ROOT, "qa-lab-agent.config.json");
+  if (fs.existsSync(configPath)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      const customDirs = cfg.testDirs || cfg.qa?.testDirs;
+      if (Array.isArray(customDirs)) {
+        for (const dir of customDirs) {
+          const d = String(dir).trim();
+          if (d && !structure.testDirs.includes(d)) {
+            const fullPath = path.join(PROJECT_ROOT, d);
+            if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+              structure.testDirs.push(d);
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
   let environment = "web";
   if (structure.hasMobile && !hasWebFrameworks) environment = "mobile";
   else if (structure.hasMobile && hasWebFrameworks) environment = "both";
@@ -326,6 +346,69 @@ export function matchesFramework(inferred, requested) {
   const aliases = { spec: ["playwright", "webdriverio", "appium"] };
   if (inferred === requested) return true;
   return aliases[inferred]?.includes(requested);
+}
+
+/**
+ * Detecta device/config para testes mobile a partir de arquivos de config e env.
+ * Retorna { device, configuration, platform, envOverrides } para Appium/Detox.
+ */
+export function detectDeviceConfig(structure) {
+  const result = { device: null, configuration: null, platform: null, envOverrides: {} };
+
+  if (!structure.hasMobile) return result;
+
+  const configPath = path.join(PROJECT_ROOT, "qa-lab-agent.config.json");
+  if (fs.existsSync(configPath)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      const deviceCfg = cfg.device || cfg.mobile || cfg.appium || cfg.detox;
+      if (deviceCfg) {
+        result.device = deviceCfg.deviceName || deviceCfg.device || deviceCfg.udid;
+        result.configuration = deviceCfg.configuration || deviceCfg.config;
+        result.platform = deviceCfg.platformName || deviceCfg.platform;
+        if (deviceCfg.udid) result.envOverrides.APPIUM_UDID = deviceCfg.udid;
+        if (deviceCfg.deviceName) result.envOverrides.APPIUM_DEVICE_NAME = deviceCfg.deviceName;
+      }
+    } catch {}
+  }
+
+  if (process.env.DETOX_CONFIGURATION) result.configuration = process.env.DETOX_CONFIGURATION;
+  if (process.env.APPIUM_UDID) result.envOverrides.APPIUM_UDID = process.env.APPIUM_UDID;
+  if (process.env.APPIUM_DEVICE_NAME) result.envOverrides.APPIUM_DEVICE_NAME = process.env.APPIUM_DEVICE_NAME;
+
+  const detoxPath = path.join(PROJECT_ROOT, ".detoxrc.js");
+  if (fs.existsSync(detoxPath) && !result.configuration) {
+    try {
+      const content = fs.readFileSync(detoxPath, "utf8");
+      const configMatch = content.match(/configurations:\s*\{([^}]+)\}/s);
+      if (configMatch) {
+        const firstConfig = configMatch[1].match(/"([^"]+)":\s*\{/);
+        if (firstConfig) result.configuration = firstConfig[1];
+      }
+    } catch {}
+  }
+
+  const wdioPaths = ["wdio.conf.js", "wdio.conf.cjs", "wdio.conf.mjs", "wdio.conf.ts"];
+  for (const name of wdioPaths) {
+    const wdioPath = path.join(PROJECT_ROOT, name);
+    if (fs.existsSync(wdioPath) && !result.device) {
+      try {
+        const content = fs.readFileSync(wdioPath, "utf8");
+        const capMatch = content.match(/capabilities:\s*\[([\s\S]*?)\]/);
+        if (capMatch) {
+          const deviceMatch = capMatch[1].match(/deviceName:\s*['"]([^'"]+)['"]/);
+          const udidMatch = capMatch[1].match(/udid:\s*['"]([^'"]+)['"]/);
+          const platformMatch = capMatch[1].match(/platformName:\s*['"]([^'"]+)['"]/);
+          if (deviceMatch) result.device = deviceMatch[1];
+          if (udidMatch) result.envOverrides.APPIUM_UDID = udidMatch[1];
+          if (platformMatch) result.platform = platformMatch[1];
+        }
+      } catch {}
+      break;
+    }
+  }
+
+  return result;
 }
 
 export function getFrameworkCwd(structure, preferredDirs) {
