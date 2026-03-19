@@ -4,7 +4,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Agente de QA que executa, analisa e aprende.** Detecta frameworks automaticamente, gera testes com LLM, corrige falhas e acumula conhecimento entre execuções. Integra ao Cursor, Cline, Windsurf ou Slack.
+**Sistema de inteligência em qualidade de software.** Executa testes, analisa causas de falha, corrige automaticamente e aprende padrões que melhoram as próximas gerações. Não é ferramenta de QA — é um sistema que entende qualidade. Integra ao Cursor, Cline, Windsurf ou Slack.
 
 ```bash
 npx mcp-lab-agent auto "login flow" --max-retries 5
@@ -12,13 +12,15 @@ npx mcp-lab-agent auto "login flow" --max-retries 5
 
 **1 comando. Análise completa.**
 
+> Testes falham e você não sabe por quê? Executores rodam mas não aprendem. O mcp-lab-agent analisa causas, corrige e acumula conhecimento.
+
 ---
 
 ## O que é
 
-O **mcp-lab-agent** não é apenas um executor de testes. É um sistema que combina automação com análise e aprendizado contínuo. Ele entende o seu projeto, identifica frameworks (Cypress, Playwright, Jest, Appium, Robot, pytest e outros), gera testes com base em context e memória, executa, analisa falhas e aplica correções automaticamente. A cada execução, o agente melhora: taxa de sucesso na primeira tentativa tende a subir com o tempo.
+O **mcp-lab-agent** é um sistema de inteligência em qualidade de software — não uma ferramenta de teste isolada. Ele entende o seu projeto, identifica frameworks (Cypress, Playwright, Jest, Appium, Robot, pytest e outros), gera testes com base em contexto e memória, executa, analisa falhas e aplica correções automaticamente. O valor central está no **learning**: cada correção bem-sucedida é salva e usada nas próximas gerações, aumentando a taxa de sucesso na primeira tentativa.
 
-Com o **Learning Hub**, os aprendizados podem ser centralizados e agregados entre projetos, permitindo que times e organizações construam uma base de conhecimento em qualidade compartilhada.
+Com o **Learning Hub**, os aprendizados são centralizados e agregados entre projetos e — em deploy compartilhado — entre times e empresas, formando uma base de conhecimento em qualidade que escala além do repositório.
 
 ---
 
@@ -29,7 +31,7 @@ Com o **Learning Hub**, os aprendizados podem ser centralizados e agregados entr
 | **QAs e SDETs** | Geração assistida de testes, análise de falhas com sugestões de correção, detecção de flakiness |
 | **Desenvolvedores** | "Por que falhou?", análise de arquivos e métodos, integração direta no IDE |
 | **Tech leads** | Visão de risco por área, métricas de estabilidade, relatórios para decisão |
-| **Empresas** | Learning Hub centralizado, CI/CD, suporte a Ollama (offline), Slack para QA via chat |
+| **Empresas** | Learning Hub centralizado, escala entre squads e organizações, CI/CD, Ollama (offline), Slack para QA via chat |
 
 ---
 
@@ -40,8 +42,31 @@ Com o **Learning Hub**, os aprendizados podem ser centralizados e agregados entr
 | Só executam testes | Executa, analisa causa da falha e sugere correção |
 | Saída genérica "teste falhou" | Diagnóstico: "login falha 30% das vezes (timing)" |
 | Sem visão de risco | Identifica áreas sem testes e classifica risco (alto/médio/baixo) |
-| Sem memória entre execuções | Aprende padrões e melhora nas próximas gerações |
-| Uma ferramenta por tarefa | Um agente: geração, execução, análise, relatórios, predição |
+| Sem memória entre execuções | Learning system: cada padrão de falha vira correção aplicada nas próximas gerações |
+| Uma ferramenta por tarefa | Sistema de inteligência: geração, execução, análise, relatórios, predição, learning |
+
+---
+
+## Learning System
+
+**Como aprende:** O agente detecta o padrão de falha em cada execução (regex + contexto) e armazena a correção aplicada na memória. Nas próximas gerações, esses aprendizados são injetados no prompt do LLM e nas práticas obrigatórias.
+
+**Baseado em quê:** Tipo de erro (classificado automaticamente), framework, trecho de correção e resultado (passou ou não).
+
+**Melhora quanto:** Taxa de sucesso na primeira tentativa (%), rastreável em `mcp-lab-agent stats` e `get_learning_report`. Quanto mais correções bem-sucedidas, maior a tendência de os próximos testes passarem de primeira.
+
+**Exemplos de padrões aprendidos:**
+
+| Padrão detectado | Correção aplicada |
+|------------------|-------------------|
+| `element_not_visible` | `waitForDisplayed()`, `should('be.visible')` antes de interagir |
+| `element_not_rendered` | `waitForSelector`, `waitFor({ state: 'attached' })` |
+| `selector` instável | Sugestão de `data-testid`, `role`, seletores acessíveis |
+| `timing` | Retry automático, waits explícitos, timeout ajustado |
+| `element_stale` | Re-localizar elemento antes de cada ação |
+| `mobile_mapping_invisible` | Mapeamento visível no topo do spec (Page Object) |
+
+Cada correção bem-sucedida aumenta a taxa de sucesso futura.
 
 ---
 
@@ -156,45 +181,6 @@ flowchart TB
 5. Aprende e salva correções na memória
 6. Repete até passar ou atingir `max_retries`
 
-### Diagrama (Mermaid)
-
-```mermaid
-flowchart TB
-    subgraph Entrada["Entrada"]
-        CLI[CLI: auto, stats, report]
-        IDE[IDE: Cursor, Cline, Windsurf]
-        Slack[Slack Bot]
-    end
-
-    subgraph Agent["mcp-lab-agent"]
-        Router[qa_route_task]
-        AutoTool[qa_auto]
-        MR[Model Router]
-        FD[Flaky Detection]
-        PM[Project Memory]
-        LS[Learning System]
-        
-        subgraph Tools["Ferramentas"]
-            D[detect_project]
-            G[generate_tests]
-            E[run_tests]
-            A[analyze_failures]
-            R[get_learning_report]
-        end
-    end
-
-    subgraph Hub["Learning Hub"]
-        API[API /patterns]
-        Dash[Dashboard]
-    end
-
-    CLI & IDE & Slack --> Router
-    Router --> AutoTool & Tools
-    AutoTool --> G --> E --> A --> LS
-    LS --> PM
-    PM -.->|sync| Hub
-```
-
 ---
 
 ## Capacidades
@@ -228,7 +214,7 @@ flowchart TB
 
 ### Frameworks suportados
 
-Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot Framework, pytest, Behave, Appium, Detox.
+11+ frameworks: Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot Framework, pytest, Behave, Appium, Detox.
 
 ---
 
@@ -247,15 +233,26 @@ Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot Framework, pytest, 
 | `route <tarefa>` | Sugere ferramenta |
 | `list` | Lista agentes e ferramentas |
 
+```bash
+# Exemplos de uso
+mcp-lab-agent learning-hub          # Inicia Hub (porta 3847)
+mcp-lab-agent analyze              # Análise completa
+mcp-lab-agent auto "login flow"     # Modo autônomo
+mcp-lab-agent stats                 # Taxa de sucesso, aprendizados
+mcp-lab-agent report --full        # Relatório com recomendações
+```
+
 ---
 
 ## Escalabilidade e uso em produção
 
-- **Multi-projeto**: memória isolada por projeto; Learning Hub para agregação
-- **CI/CD**: integração em GitHub Actions, GitLab CI, etc.
-- **Métricas exportáveis**: JSON estruturado para dashboards (Grafana, DataDog)
-- **Ollama**: uso 100% offline, adequado para ambientes restritivos
-- **LLM interno**: suporte a endpoint customizado da empresa
+- **Por projeto**: memória local (`.qa-lab-memory.json`) isolada por repositório
+- **Entre times**: Learning Hub agrega padrões por `projectId`; Dashboard compartilhado
+- **Entre empresas**: um Hub pode servir múltiplas organizações; padrões cross-org (ex.: "Playwright + selector instável" em 15 projetos) viram recomendações globais
+- **CI/CD**: integração em GitHub Actions, GitLab CI, Jenkins
+- **Métricas exportáveis**: JSON estruturado para Grafana, DataDog, dashboards internos
+- **Ollama**: 100% offline; adequado para ambientes corporativos restritivos
+- **LLM interno**: endpoint customizado da empresa
 
 ---
 
