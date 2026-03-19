@@ -4,106 +4,68 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Sistema de Inteligência em Qualidade de Software.**
+**Agente de QA que executa, analisa e aprende.** Detecta frameworks automaticamente, gera testes com LLM, corrige falhas e acumula conhecimento entre execuções. Integra ao Cursor, Cline, Windsurf ou Slack.
 
-Não é uma ferramenta de teste. É um sistema que **entende qualidade**:
-- **Executa:** Roda testes, gera, corrige
-- **Analisa:** "login falha 30% das vezes (timing)"
-- **Prevê:** "checkout vai ficar flaky"
-- **Recomenda:** "faça isso agora: 1, 2, 3"
-- **Aprende:** Memória local + Learning Hub = inteligência acumulativa
-
-**Memória local → Inteligência global.** Cada projeto aprende sozinho; com o Learning Hub, os aprendizados se acumulam entre projetos.
+```bash
+npx mcp-lab-agent auto "login flow" --max-retries 5
+```
 
 **1 comando. Análise completa.**
 
 ---
 
-## O diferencial
+## O que é
 
-| Outras ferramentas | **mcp-lab-agent** |
-|-------------------|-------------------|
-| Só executam | **Executa + Analisa + Recomenda** |
-| "teste falhou" | **"login falha 30% das vezes (timing)"** |
-| Sem contexto | **"src/payment/ sem testes (RISCO ALTO)"** |
-| Você decide o que fazer | **"Faça isso agora: 1, 2, 3"** |
-| Sem aprendizado | **Taxa de sucesso aumenta com o tempo** |
+O **mcp-lab-agent** não é apenas um executor de testes. É um sistema que combina automação com análise e aprendizado contínuo. Ele entende o seu projeto, identifica frameworks (Cypress, Playwright, Jest, Appium, Robot, pytest e outros), gera testes com base em context e memória, executa, analisa falhas e aplica correções automaticamente. A cada execução, o agente melhora: taxa de sucesso na primeira tentativa tende a subir com o tempo.
 
-**Modo autônomo:**
+Com o **Learning Hub**, os aprendizados podem ser centralizados e agregados entre projetos, permitindo que times e organizações construam uma base de conhecimento em qualidade compartilhada.
 
-```bash
-npx mcp-lab-agent auto "login flow" --max-retries 5
-```
+---
 
-O agente:
-1. Detecta seu projeto (Cypress, Playwright, Jest, etc.)
-2. Gera o teste com base em aprendizados anteriores
-3. Executa o teste
-4. Se falhar: analisa, corrige e tenta de novo
-5. Aprende com cada correção para melhorar nas próximas
+## Para quem
 
-**Resultado:** Testes que passam na primeira tentativa aumentam com o tempo.
+| Perfil | Benefício |
+|--------|-----------|
+| **QAs e SDETs** | Geração assistida de testes, análise de falhas com sugestões de correção, detecção de flakiness |
+| **Desenvolvedores** | "Por que falhou?", análise de arquivos e métodos, integração direta no IDE |
+| **Tech leads** | Visão de risco por área, métricas de estabilidade, relatórios para decisão |
+| **Empresas** | Learning Hub centralizado, CI/CD, suporte a Ollama (offline), Slack para QA via chat |
+
+---
+
+## Comparação
+
+| Outras ferramentas | mcp-lab-agent |
+|--------------------|---------------|
+| Só executam testes | Executa, analisa causa da falha e sugere correção |
+| Saída genérica "teste falhou" | Diagnóstico: "login falha 30% das vezes (timing)" |
+| Sem visão de risco | Identifica áreas sem testes e classifica risco (alto/médio/baixo) |
+| Sem memória entre execuções | Aprende padrões e melhora nas próximas gerações |
+| Uma ferramenta por tarefa | Um agente: geração, execução, análise, relatórios, predição |
 
 ---
 
 ## Quick Start
 
-### Análise Completa (CLI)
+### CLI — Análise completa
 
 ```bash
-# Análise completa: executa, analisa, prevê e recomenda
+# Análise completa: executa testes, analisa estabilidade, prevê riscos e recomenda ações
 npx mcp-lab-agent analyze
 
-# Modo autônomo: gera, roda, corrige e aprende
+# Modo autônomo: gera, roda, corrige e aprende (até passar ou max_retries)
 npx mcp-lab-agent auto "login flow" --max-retries 5
 
-# Ver métricas de aprendizado
+# Métricas de aprendizado e taxa de sucesso
 npx mcp-lab-agent stats
 
-# Relatório de evolução (recomendações para aprimorar o código)
+# Relatório de evolução com recomendações para aprimorar o código
 npx mcp-lab-agent report --full
 ```
 
-### Slack Bot (sem clonar o projeto)
+### IDE — Cursor, Cline, Windsurf
 
-```bash
-npx mcp-lab-agent slack-bot
-```
-
-Configure `~/.cursor/mcp.json`. **Socket Mode** (recomendado para PC corporativo, sem firewall):
-
-```json
-{
-  "qa-lab-agent": {
-    "slack": {
-      "botToken": "xoxb-...",
-      "appToken": "xapp-...",
-      "useLocal": true
-    }
-  }
-}
-```
-
-Para HTTP (ngrok): use `signingSecret` em vez de `appToken`. Ver [slack-bot/README.md](slack-bot/README.md) e [TROUBLESHOOTING.md](slack-bot/TROUBLESHOOTING.md).
-
-### Learning Hub (cérebro central)
-
-```bash
-npx mcp-lab-agent learning-hub
-```
-
-API + Dashboard em http://localhost:3847. Para acumular aprendizados entre projetos, configure no `.env`:
-
-```env
-LEARNING_HUB_URL=http://localhost:3847
-LEARNING_HUB_PROJECT_ID=meu-projeto
-```
-
-O agente enviará learnings automaticamente. Ver [learning-hub/README.md](learning-hub/README.md).
-
-### Integração com IDE (Cursor/Cline/Windsurf)
-
-**1. Configure o MCP** (`~/.cursor/mcp.json`):
+Adicione ao `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -117,256 +79,213 @@ O agente enviará learnings automaticamente. Ver [learning-hub/README.md](learni
 }
 ```
 
-**2. Use no chat:**
+Use no chat: *"Detecte a estrutura do meu projeto"*, *"Gere teste para login"*, *"Por que o teste falhou?"*, *"Avalie http://localhost:3000 no browser"*.
+
+### Slack Bot
+
+```bash
+npx mcp-lab-agent slack-bot
+```
+
+Funciona em ambiente corporativo (Socket Mode, sem URL pública). Configure `botToken` e `appToken` em `~/.cursor/mcp.json`. Detalhes: [slack-bot/README.md](slack-bot/README.md).
+
+### Learning Hub — Inteligência centralizada
+
+```bash
+npx mcp-lab-agent learning-hub
+```
+
+API e Dashboard em `http://localhost:3847`. Configure no `.env` do projeto:
 
 ```
-"Detecte a estrutura do meu projeto"
-"Modo autônomo: gere teste para login"
-"Rode os testes"
-"Por que o teste falhou?"
-"Avalie http://localhost:3000 no browser"
-"Mostre as estatísticas de aprendizado"
-"Relatório de evolução e aprendizado"
+LEARNING_HUB_URL=http://localhost:3847
+LEARNING_HUB_PROJECT_ID=meu-projeto
 ```
+
+O agente envia learnings automaticamente. O Hub agrega padrões e fornece recomendações. Detalhes: [learning-hub/README.md](learning-hub/README.md).
 
 ---
 
-## Architecture
-
-O diagrama abaixo mostra como o agente autônomo funciona:
+## Arquitetura
 
 ```mermaid
 flowchart TB
-    subgraph IDE["🖥️ IDE (Cursor, Cline, Windsurf)"]
-        Chat[Chat do usuário]
-    end
-
-    subgraph CLI["💻 CLI (Terminal)"]
-        Auto["mcp-lab-agent auto"]
-        Stats["mcp-lab-agent stats"]
-        Report["mcp-lab-agent report"]
-    end
-
-    subgraph MCP["MCP Protocol (stdio)"]
-        Transport[Stdio Transport]
+    subgraph Input["Entrada"]
+        CLI[CLI: auto, stats, report]
+        IDE[IDE: Cursor, Cline, Windsurf]
+        Slack[Slack Bot]
     end
 
     subgraph Agent["mcp-lab-agent"]
         Router[qa_route_task]
-        AutoTool["qa_auto<br/>(Loop autônomo)"]
-        
-        subgraph Agents["Agentes Especializados"]
-            D[detection<br/>detect_project, read_project, list_test_files]
-            E[execution<br/>run_tests, watch_tests, get_test_coverage]
-            G[generation<br/>generate_tests, write_test, map_mobile_elements]
-            A[analysis<br/>analyze_failures, por_que_falhou, suggest_selector_fix, analyze_file_methods]
-            B[browser<br/>web_eval_browser]
-            R[reporting<br/>create_bug_report, get_business_metrics]
-            L[learning<br/>qa_learning_stats, get_learning_report, qa_time_travel]
-        end
-
-        subgraph Brain["🧠 Núcleo Inteligente"]
-            MR[Model Router<br/>simples → Groq/Flash | complexo → 70B/Pro]
-            PM[Project Memory<br/>.qa-lab-memory.json]
-            FD[Flaky Detection<br/>element_not_rendered, visible, stale, selector, timing]
-            LS[Learning System<br/>correções por tipo + relatório de evolução]
-        end
+        Auto[qa_auto]
+        MR[Model Router]
+        FD[Flaky Detection]
+        PM[Project Memory]
+        LS[Learning System]
     end
 
-    subgraph External["Externo"]
-        LLM[LLM: Groq / Gemini / OpenAI]
-        PW[Playwright optional]
-        Proj[Seu projeto]
+    subgraph Tools["Ferramentas"]
+        D[detect_project, list_test_files]
+        G[generate_tests, write_test, map_mobile_elements]
+        E[run_tests, get_test_coverage]
+        A[analyze_failures, suggest_fix, por_que_falhou]
+        R[create_bug_report, get_learning_report]
     end
 
-    Chat --> Transport
-    Transport --> Router
-    Router --> AutoTool
-    Router --> D & E & G & A & B & R & L
+    subgraph Ext["Externo"]
+        LLM[LLM: Groq, Gemini, OpenAI, Ollama]
+        Hub[Learning Hub]
+    end
 
-    Auto --> AutoTool
-    Stats --> L
-    Report --> L
-
-    AutoTool --> G
-    AutoTool --> E
-    AutoTool --> A
-    AutoTool --> LS
-
-    D & E & G & A & R --> Proj
-    B --> PW
-    B --> Proj
-
-    G & A --> MR
-    MR --> LLM
-    G & A & AutoTool --> PM
-    A & AutoTool --> FD
-    AutoTool --> LS
-    LS --> PM
+    Input --> Router
+    Router --> Auto
+    Auto --> G & E & A
+    G & A --> MR --> LLM
+    A --> FD
+    Auto --> LS --> PM
+    PM -.-> Hub
+    Router --> D & G & E & A & R
 ```
 
-**Fluxo autônomo (qa_auto):**
-1. **Detecta** projeto (frameworks, pastas, fluxos)
-2. **Gera** teste usando LLM + memória de aprendizados
-3. **Executa** o teste
-4. **Se falhar:** analisa (flaky detection), corrige e tenta de novo
-5. **Aprende:** salva correções bem-sucedidas na memória
-6. **Repete** até passar ou atingir max_retries
+**Fluxo `qa_auto`:**
+1. Detecta projeto (frameworks, pastas, fluxos)
+2. Gera teste com LLM + memória de aprendizados
+3. Executa o teste
+4. Se falhar: analisa (flaky detection), corrige e tenta novamente
+5. Aprende e salva correções na memória
+6. Repete até passar ou atingir `max_retries`
 
-**Fluxo resumido (IDE):**
-1. **Usuário** fala no chat do IDE
-2. **MCP** entrega a mensagem ao `mcp-lab-agent`
-3. **qa_route_task** sugere o agente certo (detection, execution, generation, etc.)
-4. **Ferramentas** executam no projeto (detectar, rodar, gerar, analisar)
-5. **Model Router** escolhe o modelo: tarefas simples → barato; complexas → mais capaz
-6. **Project Memory** guarda padrões e fluxos para próximas gerações
-7. **Flaky Detection** identifica testes intermitentes e sugere correções
+### Diagrama (Mermaid)
+
+```mermaid
+flowchart TB
+    subgraph Entrada["Entrada"]
+        CLI[CLI: auto, stats, report]
+        IDE[IDE: Cursor, Cline, Windsurf]
+        Slack[Slack Bot]
+    end
+
+    subgraph Agent["mcp-lab-agent"]
+        Router[qa_route_task]
+        AutoTool[qa_auto]
+        MR[Model Router]
+        FD[Flaky Detection]
+        PM[Project Memory]
+        LS[Learning System]
+        
+        subgraph Tools["Ferramentas"]
+            D[detect_project]
+            G[generate_tests]
+            E[run_tests]
+            A[analyze_failures]
+            R[get_learning_report]
+        end
+    end
+
+    subgraph Hub["Learning Hub"]
+        API[API /patterns]
+        Dash[Dashboard]
+    end
+
+    CLI & IDE & Slack --> Router
+    Router --> AutoTool & Tools
+    AutoTool --> G --> E --> A --> LS
+    LS --> PM
+    PM -.->|sync| Hub
+```
 
 ---
 
-## Features
+## Capacidades
 
-| Categoria | O que faz |
-|-----------|-----------|
-| **🤖 Autônomo** | `qa_auto` — loop completo: gera, roda, corrige, aprende (até passar ou max_retries) |
-| **📊 Learning** | Taxa de sucesso, relatório de evolução (`get_learning_report`), padrões por tipo (element_not_rendered, timing, etc.) |
-| **Detecção** | Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot, pytest, Behave, Appium, Detox |
-| **Execução** | run_tests, watch, coverage (Jest/Vitest) |
-| **Geração** | Testes via LLM, map_mobile_elements, templates (waits inteligentes + assert final obrigatório) |
-| **Análise** | analyze_failures, por_que_falhou, suggest_fix, suggest_selector_fix, analyze_file_methods |
-| **Browser** | web_eval_browser — screenshots, network, console (Playwright opcional) |
-| **Relatórios** | Bug reports em Markdown, métricas de negócio |
-| **Flaky-aware** | Detecta timing, selector, network, element_not_rendered, element_not_visible, element_stale; mensagens adaptadas ao erro |
-| **Inteligência** | qa_full_analysis, qa_health_check, qa_suggest_next_test, qa_predict_flaky, qa_compare_with_industry, qa_time_travel |
-| **Model routing** | Tarefas simples → modelo barato; complexas → modelo forte |
-| **Memória** | Local: .qa-lab-memory.json. Global: Learning Hub (API + Dashboard, sync automático) |
+### Automação e geração
+
+- **Modo autônomo** (`qa_auto`): gera, executa, analisa, corrige e aprende em loop
+- **Geração com LLM**: Groq, Gemini, OpenAI ou Ollama (100% offline)
+- **Mapeamento mobile** (`map_mobile_elements`): elementos em Appium/Detox
+- **Templates**: waits inteligentes e assert final obrigatório em todo teste gerado
+
+### Análise e diagnóstico
+
+- **Detecção de falhas**: timing, selector, element_not_rendered, element_not_visible, element_stale, mobile_mapping_invisible
+- **Mensagens contextualizadas**: cada tipo de erro tem explicação e sugestão específica
+- **Análise de estabilidade**: taxa de falha por teste, identificação de flaky
+- **Predição de flakiness** (`qa_predict_flaky`): risco antes de o problema aparecer
+- **Análise de métodos** (`analyze_file_methods`): varredura por método do arquivo
+
+### Relatórios e métricas
+
+- **Bug reports** em Markdown
+- **Métricas de negócio** (se `qa-lab-flows.json` configurado)
+- **Relatório de evolução** (`get_learning_report`): padrões por tipo, recomendações
+- **Benchmark** (`qa_compare_with_industry`): comparação com padrões do mercado
+
+### Memória e Learning Hub
+
+- **Memória local**: `.qa-lab-memory.json` por projeto
+- **Learning Hub**: API central (`POST /learning`, `GET /patterns`), Dashboard, sync automático entre projetos
+
+### Frameworks suportados
+
+Cypress, Playwright, WebdriverIO, Jest, Vitest, Mocha, Robot Framework, pytest, Behave, Appium, Detox.
 
 ---
 
 ## CLI
 
-```bash
-mcp-lab-agent [comando]
-```
-
 | Comando | Descrição |
 |---------|-----------|
-| *(sem args)* | Inicia o servidor MCP (modo padrão para o IDE) |
-| `learning-hub` | API + Dashboard central (porta 3847). Padrões agregados, sync entre projetos |
-| `slack-bot` | Slack Bot (QA via @mention). Funciona em PC corporativo (Socket Mode) |
-| `analyze` | Análise completa: executa, analisa estabilidade, prevê riscos, recomenda ações |
-| `auto <descrição> [--max-retries N]` | Modo autônomo: gera, roda, corrige e aprende (default: 3 tentativas) |
-| `stats` | Estatísticas de aprendizado (taxa de sucesso, correções por tipo) |
-| `report [--full]` | Relatório de evolução e aprendizado (--full = recomendações para aprimorar código) |
-| `detect [--json]` | Detecta frameworks e estrutura do projeto |
-| `route <tarefa>` | Sugere qual ferramenta usar |
-| `list` | Lista agentes e ferramentas disponíveis |
-| `--help` | Mostra ajuda |
-
-**Exemplos:**
-```bash
-mcp-lab-agent learning-hub         # Inicia API + Dashboard (porta 3847)
-mcp-lab-agent slack-bot
-mcp-lab-agent analyze
-mcp-lab-agent auto "login flow" --max-retries 5
-mcp-lab-agent stats
-mcp-lab-agent report --full
-mcp-lab-agent detect
-mcp-lab-agent route "rodar os testes"
-mcp-lab-agent list
-```
-
-Referência completa do CLI: `mcp-lab-agent --help`
+| *(sem args)* | Inicia servidor MCP (modo IDE) |
+| `learning-hub` | API + Dashboard (porta 3847) |
+| `slack-bot` | Bot Slack (Socket Mode) |
+| `analyze` | Análise completa do projeto |
+| `auto <descrição> [--max-retries N]` | Modo autônomo (default: 3 tentativas) |
+| `stats` | Estatísticas de aprendizado |
+| `report [--full]` | Relatório de evolução |
+| `detect [--json]` | Detecta frameworks e estrutura |
+| `route <tarefa>` | Sugere ferramenta |
+| `list` | Lista agentes e ferramentas |
 
 ---
 
-## Escalabilidade
+## Escalabilidade e uso em produção
 
-### Como o mcp-lab-agent escala para empresas
-
-**1. Multi-projeto:**
-- Cada projeto tem sua própria memória (`.qa-lab-memory.json`)
-- Aprendizados são isolados por contexto
-- Suporte a monorepos (detecta múltiplos frameworks)
-
-**2. CI/CD:**
-```yaml
-# .github/workflows/qa.yml
-- run: npx mcp-lab-agent auto "smoke tests" --max-retries 2
-- run: npx mcp-lab-agent stats
-```
-
-**3. Métricas exportáveis:**
-- `.qa-lab-memory.json` pode ser lido por dashboards
-- `stats` retorna JSON estruturado
-- Integração com Grafana/DataDog via script
-
-**4. Inteligência global (Learning Hub):**
-- API central: `POST /learning`, `GET /patterns`
-- Dashboard web: taxa de sucesso, padrões por tipo, recomendações
-- Sync automático: cada agente envia learnings; o Hub agrega entre projetos
-
-**5. Customização:**
-- `qa-lab-flows.json` para fluxos de negócio específicos
-- Variáveis de ambiente para modelos customizados
-- Extensível via MCP tools
+- **Multi-projeto**: memória isolada por projeto; Learning Hub para agregação
+- **CI/CD**: integração em GitHub Actions, GitLab CI, etc.
+- **Métricas exportáveis**: JSON estruturado para dashboards (Grafana, DataDog)
+- **Ollama**: uso 100% offline, adequado para ambientes restritivos
+- **LLM interno**: suporte a endpoint customizado da empresa
 
 ---
 
 ## Configuração
 
-### Opção 1: APIs Externas (Groq, Gemini, OpenAI)
-
-```bash
-# .env
-GROQ_API_KEY=sua-key  # Gratuito: https://console.groq.com/keys
-```
-
-### Opção 2: Ollama (Local, Sem Internet) ⭐ Recomendado para empresas
-
-```bash
-# 1. Instale o Ollama
-brew install ollama  # macOS
-# ou: curl -fsSL https://ollama.com/install.sh | sh  # Linux
-
-# 2. Baixe o modelo
-ollama pull llama3.1:8b
-
-# 3. Inicie
-ollama serve
-
-# 4. Pronto! O agente detecta automaticamente
-npx mcp-lab-agent auto "login flow"
-```
-
-**100% offline. Sem APIs externas. Ideal para ambientes corporativos.**
-
-### Opção 3: LLM Interno da Empresa
-
-```bash
-# .env
-QA_LAB_LLM_BASE_URL=https://llm-interno.empresa.com/v1
-QA_LAB_LLM_API_KEY=sua-key-interna
-```
-
-### Variáveis de ambiente (todas opcionais)
+### Variáveis de ambiente (opcionais)
 
 | Variável | Uso |
 |----------|-----|
-| `GROQ_API_KEY` | Groq (gratuito, rápido) |
+| `GROQ_API_KEY` | Groq |
 | `GEMINI_API_KEY` | Google Gemini |
 | `OPENAI_API_KEY` | OpenAI |
-| `OLLAMA_BASE_URL` | Ollama customizado (default: http://localhost:11434) |
-| `QA_LAB_LLM_BASE_URL` | Endpoint LLM customizado (empresa) |
-| `QA_LAB_LLM_API_KEY` | API key para LLM customizado |
+| `OLLAMA_BASE_URL` | Ollama (default: http://localhost:11434) |
+| `QA_LAB_LLM_BASE_URL` | LLM customizado (empresa) |
+| `QA_LAB_LLM_API_KEY` | API key do LLM |
 | `QA_LAB_LLM_SIMPLE` | Modelo para tarefas simples |
 | `QA_LAB_LLM_COMPLEX` | Modelo para tarefas complexas |
-| `LEARNING_HUB_URL` | URL do Learning Hub (ex: http://localhost:3847). Se definido, learnings são enviados automaticamente |
-| `LEARNING_HUB_PROJECT_ID` | Identificador do projeto no Hub (agregação por projeto) |
+| `LEARNING_HUB_URL` | URL do Learning Hub |
+| `LEARNING_HUB_PROJECT_ID` | ID do projeto no Hub |
 
-### Modo browser (opcional)
+### Ollama (offline)
 
-Para `web_eval_browser`:
+```bash
+brew install ollama
+ollama pull llama3.1:8b
+ollama serve
+npx mcp-lab-agent auto "login flow"
+```
+
+### Modo browser (Playwright)
 
 ```bash
 npm install playwright
@@ -376,9 +295,9 @@ npm install playwright
 
 ## Documentação
 
-- **[CHANGELOG.md](CHANGELOG.md)** — Histórico de versões
-- **[slack-bot/README.md](slack-bot/README.md)** — Configuração do Slack Bot (Socket Mode, HTTP)
-- **[learning-hub/README.md](learning-hub/README.md)** — Learning Hub (API centralizada, Dashboard)
+- [CHANGELOG.md](CHANGELOG.md) — Histórico de versões
+- [slack-bot/README.md](slack-bot/README.md) — Slack Bot
+- [learning-hub/README.md](learning-hub/README.md) — Learning Hub
 
 ---
 
@@ -394,7 +313,7 @@ npm test
 
 | Script | Descrição |
 |--------|-----------|
-| `npm run build` | Build com tsup |
+| `npm run build` | Build (tsup) |
 | `npm test` | Testes (Vitest) |
 | `npm run test:coverage` | Cobertura |
 | `npm run dev` | Build em watch |
