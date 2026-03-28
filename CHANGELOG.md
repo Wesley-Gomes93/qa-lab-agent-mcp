@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.3.1] - 2026-03-28
+
+### 🐛 Fix: Learning Hub path.join Error
+
+**Problema:**
+- Learning Hub falhava com erro `path.join is not a function`
+- Variável `path` estava sendo sobrescrita por `url.pathname`
+
+**Correção:**
+- Renomeado `path` para `pathname` na linha 55
+- Mantém módulo `path` do Node.js funcionando corretamente
+
 ## [2.3.0] - 2026-03-28
 
 ### 🚀 Múltiplos Testes em Paralelo

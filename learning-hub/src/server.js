@@ -52,15 +52,15 @@ async function handler(req, res) {
   }
 
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  const path = url.pathname;
+  const pathname = url.pathname;
 
   try {
-    if (path === "/health") {
+    if (pathname === "/health") {
       send(res, 200, { ok: true, service: "learning-hub", version: "1.0.0" });
       return;
     }
 
-    if (path === "/learning" && req.method === "POST") {
+    if (pathname === "/learning" && req.method === "POST") {
       const body = await parseBody(req);
       const learnings = body.learnings ?? (body.type ? body : null);
       if (!learnings) {
@@ -73,7 +73,7 @@ async function handler(req, res) {
       return;
     }
 
-    if (path === "/patterns" && req.method === "GET") {
+    if (pathname === "/patterns" && req.method === "GET") {
       const framework = url.searchParams.get("framework");
       const projectId = url.searchParams.get("projectId");
       const limit = parseInt(url.searchParams.get("limit") || "500", 10);
@@ -82,7 +82,7 @@ async function handler(req, res) {
       return;
     }
 
-    if (path === "/" || path === "") {
+    if (pathname === "/" || pathname === "") {
       const dashboardPath = path.join(__dirname, "dashboard.html");
       if (fs.existsSync(dashboardPath)) {
         res.writeHead(200, { "Content-Type": "text/html" });
@@ -101,7 +101,7 @@ async function handler(req, res) {
       return;
     }
 
-    if (path === "/api") {
+    if (pathname === "/api") {
       send(res, 200, {
         name: "qa-lab-learning-hub",
         endpoints: {

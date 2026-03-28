@@ -1,6 +1,6 @@
 {
   "name": "mcp-lab-agent",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Sistema de Inteligência em Qualidade de Software: executa, analisa, prevê, recomenda e aprende. Memória local + Learning Hub.",
   "type": "module",
   "main": "dist/index.js",
