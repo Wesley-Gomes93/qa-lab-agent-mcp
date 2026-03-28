@@ -1542,16 +1542,19 @@ async function handleAutoCommand() {
 [Tentativa ${attempt}/${maxRetries}] Gerando teste...`);
     const { provider, apiKey, baseUrl, model } = llm;
     const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
+    const packageInfo = structure.packageJson || {};
+    const isESM = packageInfo.type === "module";
     const systemPrompt = `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
 ${memoryHints ? `
 Aprendizados anteriores (use como refer\xEAncia):
 ${memoryHints.slice(0, 1e3)}` : ""}
+${isESM ? "\nIMPORTANTE: Use sintaxe ESM (import/export), N\xC3O use require()." : ""}
 Retorne SOMENTE o c\xF3digo, sem markdown.`;
     const userPrompt = `Contexto:
 ${contextLines}
 
 Gere teste para: ${cleanRequest}
-Framework: ${fw}`;
+Framework: ${fw}${isESM ? "\nUse import { test, expect } from '@playwright/test';" : ""}`;
     try {
       let specContent = "";
       if (provider === "gemini") {
@@ -1565,6 +1568,9 @@ Framework: ${fw}`;
           })
         });
         const data = await res.json();
+        if (data.error) {
+          throw new Error(`Gemini API Error: ${data.error.message || JSON.stringify(data.error)}`);
+        }
         specContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
       } else {
         const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -1578,10 +1584,20 @@ Framework: ${fw}`;
           })
         });
         const data = await res.json();
+        if (data.error) {
+          throw new Error(`API Error: ${data.error.message || JSON.stringify(data.error)}`);
+        }
         specContent = data.choices?.[0]?.message?.content || "";
+      }
+      console.log(`[DEBUG] Resposta do LLM recebida: ${specContent.length} caracteres`);
+      if (!specContent || specContent.trim().length === 0) {
+        throw new Error("LLM retornou conte\xFAdo vazio. Verifique sua API key e conex\xE3o.");
       }
       specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
       testContent = specContent;
+      if (!testContent || testContent.trim().length === 0) {
+        throw new Error("Ap\xF3s parsing, o c\xF3digo ficou vazio. Resposta do LLM pode estar em formato inesperado.");
+      }
       if (!testFilePath) {
         const fileName = cleanRequest.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
         const { ext, baseDir } = getExtensionAndBaseDir(fw, structure);
@@ -1590,7 +1606,11 @@ Framework: ${fw}`;
         if (!fs5.existsSync(baseDir)) fs5.mkdirSync(baseDir, { recursive: true });
       }
       fs5.writeFileSync(testFilePath, testContent, "utf8");
-      console.log(`\u2705 Teste gravado: ${testFilePath}`);
+      const fileSize = fs5.statSync(testFilePath).size;
+      if (fileSize === 0) {
+        throw new Error("Arquivo gravado mas est\xE1 vazio. Problema na escrita do arquivo.");
+      }
+      console.log(`\u2705 Teste gravado: ${testFilePath} (${fileSize} bytes)`);
       console.log(`
 [Tentativa ${attempt}/${maxRetries}] Executando teste...`);
       const runArg = fw === "playwright" ? path5.relative(PROJECT_ROOT5, testFilePath).replace(/\\/g, "/") : testFilePath;
@@ -1642,8 +1662,59 @@ ${runResult.output.slice(0, 800)}
         console.log(`\u26A0\uFE0F Flaky detectado (${flakyAnalysis.confidence.toFixed(2)}): ${flakyAnalysis.patterns.map((p) => p.pattern).join(", ")}`);
       }
       console.log(`
-[Tentativa ${attempt}/${maxRetries}] Aplicando corre\xE7\xE3o (simulada)...`);
-      console.log(`\u26A0\uFE0F Corre\xE7\xE3o autom\xE1tica ainda n\xE3o implementada nesta vers\xE3o CLI. Tentando novamente...`);
+[Tentativa ${attempt}/${maxRetries}] Aplicando corre\xE7\xE3o...`);
+      try {
+        const fixPrompt = `Voc\xEA \xE9 um engenheiro de QA. O teste falhou com o seguinte erro:
+
+${runResult.output.slice(0, 1e3)}
+
+C\xF3digo atual do teste:
+${testContent}
+
+Analise o erro e corrija o teste. Considere:
+- Seletores podem estar errados (verifique se os elementos existem)
+- Pode precisar de waits (waitForSelector, waitForLoadState)
+- Rotas podem estar erradas (/buscar vs /busca)
+- Elementos podem ter nomes diferentes
+
+Retorne APENAS o c\xF3digo corrigido, sem explica\xE7\xF5es.${isESM ? "\nUse import { test, expect } from '@playwright/test';" : ""}`;
+        let fixedContent = "";
+        if (provider === "gemini") {
+          const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: fixPrompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 4096 }
+            })
+          });
+          const data = await res.json();
+          fixedContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        } else {
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: "user", content: fixPrompt }],
+              temperature: 0.3,
+              max_tokens: 4096
+            })
+          });
+          const data = await res.json();
+          fixedContent = data.choices?.[0]?.message?.content || "";
+        }
+        fixedContent = fixedContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+        if (fixedContent && fixedContent.length > 50) {
+          testContent = fixedContent;
+          console.log(`\u2705 Corre\xE7\xE3o gerada pelo LLM.`);
+        } else {
+          console.log(`\u26A0\uFE0F Corre\xE7\xE3o vazia, tentando novamente...`);
+        }
+      } catch (fixErr) {
+        console.log(`\u26A0\uFE0F Erro ao gerar corre\xE7\xE3o: ${fixErr.message}. Tentando novamente...`);
+      }
     } catch (err) {
       console.error(`
 \u274C Erro na tentativa ${attempt}: ${err.message}
@@ -4384,17 +4455,20 @@ server.registerTool(
       learnings.push({ attempt, action: "generate_tests", result: "gerando..." });
       const { provider, apiKey, baseUrl, model } = llm;
       const memoryHints = memory.learnings?.filter((l) => l.fix).slice(-10).map((l) => l.fix).join("\n") || "";
+      const packageInfo = structure.packageJson || {};
+      const isESM = packageInfo.type === "module";
       const systemPrompt = `Voc\xEA \xE9 um engenheiro de QA especializado em ${fw}. Gere APENAS o c\xF3digo do spec, sem explica\xE7\xF5es.
 ${UNIVERSAL_TEST_PRACTICES}
 
 ${memoryHints ? `Aprendizados anteriores (use como refer\xEAncia):
 ${memoryHints.slice(0, 1e3)}` : ""}
+${isESM ? "\nIMPORTANTE: Use sintaxe ESM (import/export), N\xC3O use require()." : ""}
 Retorne SOMENTE o c\xF3digo, sem markdown.`;
       const userPrompt = `Contexto:
 ${contextLines}
 
 Gere teste para: ${request}
-Framework: ${fw}`;
+Framework: ${fw}${isESM ? "\nUse import { test, expect } from '@playwright/test';" : ""}`;
       try {
         let specContent = "";
         if (provider === "gemini") {
@@ -4421,10 +4495,23 @@ Framework: ${fw}`;
             })
           });
           const data = await res.json();
+          if (data.error) {
+            learnings.push({ attempt, action: "llm_call", result: `\u274C API error: ${data.error.message}` });
+            throw new Error(`API Error: ${data.error.message || JSON.stringify(data.error)}`);
+          }
           specContent = data.choices?.[0]?.message?.content || "";
         }
+        if (!specContent || specContent.trim().length === 0) {
+          learnings.push({ attempt, action: "generate_test", result: "\u274C LLM retornou vazio" });
+          throw new Error("LLM retornou conte\xFAdo vazio. Verifique sua API key e conex\xE3o.");
+        }
+        learnings.push({ attempt, action: "generate_test", result: `\u2705 recebido ${specContent.length} chars` });
         specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
         testContent = specContent;
+        if (!testContent || testContent.trim().length === 0) {
+          learnings.push({ attempt, action: "parse_code", result: "\u274C c\xF3digo vazio ap\xF3s parsing" });
+          throw new Error("Ap\xF3s parsing, o c\xF3digo ficou vazio. Resposta do LLM pode estar em formato inesperado.");
+        }
         if (!testFilePath) {
           const fileName = request.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
           const { ext, baseDir } = getExtensionAndBaseDir2(fw, structure);
@@ -4433,7 +4520,12 @@ Framework: ${fw}`;
           if (!fs6.existsSync(baseDir)) fs6.mkdirSync(baseDir, { recursive: true });
         }
         fs6.writeFileSync(testFilePath, testContent, "utf8");
-        learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath}` });
+        const writtenFileSize = fs6.statSync(testFilePath).size;
+        if (writtenFileSize === 0) {
+          learnings.push({ attempt, action: "write_test", result: "\u274C arquivo vazio ap\xF3s gravar" });
+          throw new Error("Arquivo gravado mas est\xE1 vazio. Problema na escrita do arquivo.");
+        }
+        learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath} (${writtenFileSize} bytes)` });
         learnings.push({ attempt, action: "run_tests", result: "executando..." });
         const runArg = fw === "playwright" ? path6.relative(PROJECT_ROOT6, testFilePath).replace(/\\/g, "/") : testFilePath;
         const runResult = await new Promise((resolve) => {
@@ -4495,9 +4587,14 @@ ${runResult.output.slice(0, 500)}${learnedAppendix2}` }],
         }
         learnings.push({ attempt, action: "apply_fix", result: "aplicando corre\xE7\xE3o..." });
         const fixedCode = explainResult.structuredContent.sugestaoCorrecao;
+        if (!fixedCode || fixedCode.trim().length === 0) {
+          learnings.push({ attempt, action: "apply_fix", result: "\u274C corre\xE7\xE3o vazia" });
+          continue;
+        }
         testContent = fixedCode;
         fs6.writeFileSync(testFilePath, testContent, "utf8");
-        learnings.push({ attempt, action: "apply_fix", result: "corre\xE7\xE3o aplicada" });
+        const fixedFileSize = fs6.statSync(testFilePath).size;
+        learnings.push({ attempt, action: "apply_fix", result: `corre\xE7\xE3o aplicada (${fixedFileSize} bytes)` });
         if (flakyAnalysis.isLikelyFlaky) {
           const inferredPattern = inferFailurePattern(runResult.output, fw);
           const learningType = inferredPattern?.learningType || (flakyAnalysis.patterns[0]?.pattern === "selector" ? "selector_fix" : "timing_fix");

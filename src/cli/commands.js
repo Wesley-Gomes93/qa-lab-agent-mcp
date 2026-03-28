@@ -661,11 +661,15 @@ async function handleAutoCommand() {
 
     const { provider, apiKey, baseUrl, model } = llm;
     const memoryHints = memory.learnings?.filter((l) => l.success).slice(-10).map((l) => l.fix).join("\n") || "";
+    const packageInfo = structure.packageJson || {};
+    const isESM = packageInfo.type === "module";
+    
     const systemPrompt = `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
 ${memoryHints ? `\nAprendizados anteriores (use como referência):\n${memoryHints.slice(0, 1000)}` : ""}
+${isESM ? "\nIMPORTANTE: Use sintaxe ESM (import/export), NÃO use require()." : ""}
 Retorne SOMENTE o código, sem markdown.`;
 
-    const userPrompt = `Contexto:\n${contextLines}\n\nGere teste para: ${cleanRequest}\nFramework: ${fw}`;
+    const userPrompt = `Contexto:\n${contextLines}\n\nGere teste para: ${cleanRequest}\nFramework: ${fw}${isESM ? "\nUse import { test, expect } from '@playwright/test';" : ""}`;
 
     try {
       let specContent = "";
@@ -680,6 +684,11 @@ Retorne SOMENTE o código, sem markdown.`;
           }),
         });
         const data = await res.json();
+        
+        if (data.error) {
+          throw new Error(`Gemini API Error: ${data.error.message || JSON.stringify(data.error)}`);
+        }
+        
         specContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
       } else {
         const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -693,10 +702,26 @@ Retorne SOMENTE o código, sem markdown.`;
           }),
         });
         const data = await res.json();
+        
+        if (data.error) {
+          throw new Error(`API Error: ${data.error.message || JSON.stringify(data.error)}`);
+        }
+        
         specContent = data.choices?.[0]?.message?.content || "";
       }
+      
+      console.log(`[DEBUG] Resposta do LLM recebida: ${specContent.length} caracteres`);
+      
+      if (!specContent || specContent.trim().length === 0) {
+        throw new Error("LLM retornou conteúdo vazio. Verifique sua API key e conexão.");
+      }
+      
       specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
       testContent = specContent;
+      
+      if (!testContent || testContent.trim().length === 0) {
+        throw new Error("Após parsing, o código ficou vazio. Resposta do LLM pode estar em formato inesperado.");
+      }
 
       if (!testFilePath) {
         const fileName = cleanRequest.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
@@ -705,8 +730,15 @@ Retorne SOMENTE o código, sem markdown.`;
         testFilePath = path.join(baseDir, safeName);
         if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
       }
+      
       fs.writeFileSync(testFilePath, testContent, "utf8");
-      console.log(`✅ Teste gravado: ${testFilePath}`);
+      
+      const fileSize = fs.statSync(testFilePath).size;
+      if (fileSize === 0) {
+        throw new Error("Arquivo gravado mas está vazio. Problema na escrita do arquivo.");
+      }
+      
+      console.log(`✅ Teste gravado: ${testFilePath} (${fileSize} bytes)`);
 
       console.log(`\n[Tentativa ${attempt}/${maxRetries}] Executando teste...`);
       // Playwright interpreta o argumento como regex/glob; caminho absoluto causa "No tests found"
@@ -749,8 +781,63 @@ Retorne SOMENTE o código, sem markdown.`;
         console.log(`⚠️ Flaky detectado (${flakyAnalysis.confidence.toFixed(2)}): ${flakyAnalysis.patterns.map((p) => p.pattern).join(", ")}`);
       }
 
-      console.log(`\n[Tentativa ${attempt}/${maxRetries}] Aplicando correção (simulada)...`);
-      console.log(`⚠️ Correção automática ainda não implementada nesta versão CLI. Tentando novamente...`);
+      console.log(`\n[Tentativa ${attempt}/${maxRetries}] Aplicando correção...`);
+      
+      try {
+        const fixPrompt = `Você é um engenheiro de QA. O teste falhou com o seguinte erro:
+
+${runResult.output.slice(0, 1000)}
+
+Código atual do teste:
+${testContent}
+
+Analise o erro e corrija o teste. Considere:
+- Seletores podem estar errados (verifique se os elementos existem)
+- Pode precisar de waits (waitForSelector, waitForLoadState)
+- Rotas podem estar erradas (/buscar vs /busca)
+- Elementos podem ter nomes diferentes
+
+Retorne APENAS o código corrigido, sem explicações.${isESM ? "\nUse import { test, expect } from '@playwright/test';" : ""}`;
+
+        let fixedContent = "";
+        if (provider === "gemini") {
+          const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: fixPrompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
+            }),
+          });
+          const data = await res.json();
+          fixedContent = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        } else {
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: "user", content: fixPrompt }],
+              temperature: 0.3,
+              max_tokens: 4096,
+            }),
+          });
+          const data = await res.json();
+          fixedContent = data.choices?.[0]?.message?.content || "";
+        }
+        
+        fixedContent = fixedContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+        
+        if (fixedContent && fixedContent.length > 50) {
+          testContent = fixedContent;
+          console.log(`✅ Correção gerada pelo LLM.`);
+        } else {
+          console.log(`⚠️ Correção vazia, tentando novamente...`);
+        }
+      } catch (fixErr) {
+        console.log(`⚠️ Erro ao gerar correção: ${fixErr.message}. Tentando novamente...`);
+      }
     } catch (err) {
       console.error(`\n❌ Erro na tentativa ${attempt}: ${err.message}\n`);
       process.exit(1);

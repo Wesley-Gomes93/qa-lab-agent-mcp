@@ -1,6 +1,6 @@
 {
   "name": "mcp-lab-agent",
-  "version": "2.1.11",
+  "version": "2.2.0",
   "description": "Sistema de Inteligência em Qualidade de Software: executa, analisa, prevê, recomenda e aprende. Memória local + Learning Hub.",
   "type": "module",
   "main": "dist/index.js",
@@ -24,6 +24,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:report": "vitest run --reporter=default --reporter=json --outputFile=test-results/results.json",
+    "resume:html": "node curriculos/generate-pdf.mjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -59,7 +60,7 @@
     "zod": "^3.25.0"
   },
   "optionalDependencies": {
-    "playwright": "^1.49.0"
+    "playwright": "^1.58.2"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",

@@ -1,5 +1,49 @@
 # Changelog
 
+## [2.2.0] - 2026-03-28
+
+### 🚀 Correção Crítica: Modo Auto Funcionando 100%
+
+**Problema Resolvido:**
+- Arquivos de teste eram criados vazios (0 bytes)
+- LLM retornava conteúdo mas não era gravado
+- Faltava validação de resposta da API
+
+**Correções Implementadas:**
+
+1. **Validação de Resposta do LLM:**
+   - Valida se API retornou erro antes de processar
+   - Verifica se conteúdo está vazio após receber do LLM
+   - Verifica se conteúdo está vazio após parsing (remoção de markdown)
+   - Lança erros claros para cada caso
+
+2. **Validação de Escrita de Arquivo:**
+   - Verifica tamanho do arquivo após `fs.writeFileSync`
+   - Lança erro se arquivo gravado está vazio
+   - Adiciona log com tamanho do arquivo em bytes
+
+3. **Suporte ESM Automático:**
+   - Detecta `"type": "module"` no package.json
+   - Adiciona instrução explícita no prompt: "Use sintaxe ESM (import/export), NÃO use require()"
+   - Garante que testes gerados usem `import` em vez de `require`
+
+4. **Correção Automática Implementada:**
+   - Remove placeholder "Correção automática ainda não implementada"
+   - Implementa correção real via LLM analisando erro e código
+   - LLM recebe erro + código atual e gera versão corrigida
+   - Aplica correção e tenta novamente
+
+5. **Build Fix:**
+   - Adiciona `external: ["playwright", "playwright-core", "chromium-bidi"]` no tsup.config
+   - Resolve erro de bundling com dependências do Playwright
+
+**Resultado:**
+- ✅ Modo `auto` gera testes com conteúdo real
+- ✅ Detecta flaky patterns (timing, selector)
+- ✅ Corrige automaticamente via LLM
+- ✅ Aprende e salva na memória local
+- ✅ Funciona com OpenAI, Groq, Gemini e Ollama
+
 ## [2.1.11] - 2026-03-19
 
 ### Fix: generate_tests + write_test — arquivos vazios / "No tests found"

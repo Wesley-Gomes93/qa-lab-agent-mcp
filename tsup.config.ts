@@ -10,4 +10,5 @@ export default {
   minify: false,
   shims: true,
   platform: "node",
+  external: ["playwright", "playwright-core", "chromium-bidi"],
 };

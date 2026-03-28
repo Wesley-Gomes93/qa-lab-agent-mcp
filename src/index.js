@@ -2875,13 +2875,18 @@ server.registerTool(
         .slice(-10)
         .map((l) => l.fix)
         .join("\n") || "";
+      
+      const packageInfo = structure.packageJson || {};
+      const isESM = packageInfo.type === "module";
+      
       const systemPrompt = `Você é um engenheiro de QA especializado em ${fw}. Gere APENAS o código do spec, sem explicações.
 ${UNIVERSAL_TEST_PRACTICES}
 
 ${memoryHints ? `Aprendizados anteriores (use como referência):\n${memoryHints.slice(0, 1000)}` : ""}
+${isESM ? "\nIMPORTANTE: Use sintaxe ESM (import/export), NÃO use require()." : ""}
 Retorne SOMENTE o código, sem markdown.`;
 
-      const userPrompt = `Contexto:\n${contextLines}\n\nGere teste para: ${request}\nFramework: ${fw}`;
+      const userPrompt = `Contexto:\n${contextLines}\n\nGere teste para: ${request}\nFramework: ${fw}${isESM ? "\nUse import { test, expect } from '@playwright/test';" : ""}`;
 
       try {
         let specContent = "";
@@ -2909,10 +2914,29 @@ Retorne SOMENTE o código, sem markdown.`;
             }),
           });
           const data = await res.json();
+          
+          if (data.error) {
+            learnings.push({ attempt, action: "llm_call", result: `❌ API error: ${data.error.message}` });
+            throw new Error(`API Error: ${data.error.message || JSON.stringify(data.error)}`);
+          }
+          
           specContent = data.choices?.[0]?.message?.content || "";
         }
+        
+        if (!specContent || specContent.trim().length === 0) {
+          learnings.push({ attempt, action: "generate_test", result: "❌ LLM retornou vazio" });
+          throw new Error("LLM retornou conteúdo vazio. Verifique sua API key e conexão.");
+        }
+        
+        learnings.push({ attempt, action: "generate_test", result: `✅ recebido ${specContent.length} chars` });
+        
         specContent = specContent.replace(/^```(?:js|javascript|typescript)?\n?/i, "").replace(/\n?```\s*$/i, "").trim();
         testContent = specContent;
+        
+        if (!testContent || testContent.trim().length === 0) {
+          learnings.push({ attempt, action: "parse_code", result: "❌ código vazio após parsing" });
+          throw new Error("Após parsing, o código ficou vazio. Resposta do LLM pode estar em formato inesperado.");
+        }
 
         if (!testFilePath) {
           const fileName = request.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
@@ -2921,8 +2945,16 @@ Retorne SOMENTE o código, sem markdown.`;
           testFilePath = path.join(baseDir, safeName);
           if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
         }
+        
         fs.writeFileSync(testFilePath, testContent, "utf8");
-        learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath}` });
+        
+        const writtenFileSize = fs.statSync(testFilePath).size;
+        if (writtenFileSize === 0) {
+          learnings.push({ attempt, action: "write_test", result: "❌ arquivo vazio após gravar" });
+          throw new Error("Arquivo gravado mas está vazio. Problema na escrita do arquivo.");
+        }
+        
+        learnings.push({ attempt, action: "write_test", result: `gravado: ${testFilePath} (${writtenFileSize} bytes)` });
 
         learnings.push({ attempt, action: "run_tests", result: "executando..." });
         const runArg = fw === "playwright" ? path.relative(PROJECT_ROOT, testFilePath).replace(/\\/g, "/") : testFilePath;
@@ -2978,9 +3010,17 @@ Retorne SOMENTE o código, sem markdown.`;
 
         learnings.push({ attempt, action: "apply_fix", result: "aplicando correção..." });
         const fixedCode = explainResult.structuredContent.sugestaoCorrecao;
+        
+        if (!fixedCode || fixedCode.trim().length === 0) {
+          learnings.push({ attempt, action: "apply_fix", result: "❌ correção vazia" });
+          continue;
+        }
+        
         testContent = fixedCode;
         fs.writeFileSync(testFilePath, testContent, "utf8");
-        learnings.push({ attempt, action: "apply_fix", result: "correção aplicada" });
+        
+        const fixedFileSize = fs.statSync(testFilePath).size;
+        learnings.push({ attempt, action: "apply_fix", result: `correção aplicada (${fixedFileSize} bytes)` });
 
         if (flakyAnalysis.isLikelyFlaky) {
           const inferredPattern = inferFailurePattern(runResult.output, fw);
