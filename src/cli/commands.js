@@ -622,15 +622,119 @@ function runTestsOnce(cmd, args, cwd, env = process.env) {
   });
 }
 
+async function handleMultipleAutoTests(testRequests, maxRetries) {
+  console.log(`📋 Testes a executar:`);
+  testRequests.forEach((req, i) => console.log(`   ${i + 1}. ${req}`));
+  console.log("");
+
+  const results = [];
+  const startTime = Date.now();
+
+  // Executar testes em paralelo
+  const promises = testRequests.map(async (testRequest, index) => {
+    const testNum = index + 1;
+    const prefix = `[Teste ${testNum}/${testRequests.length}]`;
+    
+    console.log(`${prefix} 🚀 Iniciando: "${testRequest}"\n`);
+    
+    try {
+      // Criar processo filho para cada teste
+      const { spawn } = await import("node:child_process");
+      const args = ["auto", testRequest, "--max-retries", maxRetries.toString()];
+      
+      return new Promise((resolve) => {
+        const child = spawn("mcp-lab-agent", args, {
+          cwd: process.cwd(),
+          stdio: "pipe",
+          shell: process.platform === "win32",
+        });
+        
+        let output = "";
+        if (child.stdout) child.stdout.on("data", (d) => {
+          const text = d.toString();
+          output += text;
+          // Prefixar output com número do teste
+          process.stdout.write(text.split("\n").map(line => line ? `${prefix} ${line}` : "").join("\n"));
+        });
+        if (child.stderr) child.stderr.on("data", (d) => {
+          output += d.toString();
+        });
+        
+        child.on("close", (code) => {
+          const success = code === 0;
+          const duration = Math.round((Date.now() - startTime) / 1000);
+          
+          resolve({
+            testRequest,
+            success,
+            exitCode: code,
+            output,
+            duration,
+          });
+        });
+      });
+    } catch (err) {
+      return {
+        testRequest,
+        success: false,
+        exitCode: 1,
+        error: err.message,
+        duration: 0,
+      };
+    }
+  });
+
+  // Aguardar todos os testes
+  const allResults = await Promise.all(promises);
+  
+  // Resumo final
+  const totalDuration = Math.round((Date.now() - startTime) / 1000);
+  const passed = allResults.filter(r => r.success).length;
+  const failed = allResults.length - passed;
+  
+  console.log("\n" + "=".repeat(60));
+  console.log("📊 RESUMO DOS TESTES");
+  console.log("=".repeat(60) + "\n");
+  
+  allResults.forEach((result, i) => {
+    const icon = result.success ? "✅" : "❌";
+    const status = result.success ? "PASSOU" : "FALHOU";
+    console.log(`${icon} ${i + 1}. ${result.testRequest} - ${status}`);
+  });
+  
+  console.log("");
+  console.log(`Total: ${allResults.length} testes`);
+  console.log(`✅ Passou: ${passed}`);
+  console.log(`❌ Falhou: ${failed}`);
+  console.log(`⏱️  Tempo total: ${totalDuration}s`);
+  console.log("");
+  
+  if (failed > 0) {
+    process.exit(1);
+  }
+}
+
 async function handleAutoCommand() {
   const request = process.argv.slice(3).join(" ");
   if (!request) {
     console.error("❌ Uso: mcp-lab-agent auto <descrição do teste> [--max-retries N]");
+    console.error("   Exemplos:");
+    console.error("     mcp-lab-agent auto \"login\"");
+    console.error("     mcp-lab-agent auto \"login, cadastro, buscar\" --max-retries 3");
     process.exit(1);
   }
   const maxRetriesIdx = process.argv.indexOf("--max-retries");
   const maxRetries = maxRetriesIdx !== -1 && process.argv[maxRetriesIdx + 1] ? parseInt(process.argv[maxRetriesIdx + 1], 10) : 3;
   const cleanRequest = request.replace(/--max-retries\s+\d+/g, "").trim();
+
+  // Detectar múltiplos testes separados por vírgula
+  const testRequests = cleanRequest.split(",").map(r => r.trim()).filter(Boolean);
+  
+  if (testRequests.length > 1) {
+    console.log(`\n🤖 Modo autônomo iniciado: ${testRequests.length} testes em paralelo\n`);
+    await handleMultipleAutoTests(testRequests, maxRetries);
+    return;
+  }
 
   console.log(`\n🤖 Modo autônomo iniciado: "${cleanRequest}"\n`);
   const structure = detectProjectStructure();

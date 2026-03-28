@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.3.0] - 2026-03-28
+
+### 🚀 Múltiplos Testes em Paralelo
+
+**Nova Funcionalidade:**
+- Suporte para executar múltiplos testes simultaneamente
+- Sintaxe: `mcp-lab-agent auto "teste1, teste2, teste3" --max-retries 3`
+- Execução em paralelo para maior velocidade
+- Resumo consolidado ao final
+
+**Exemplo:**
+```bash
+mcp-lab-agent auto "login, cadastro, buscar" --max-retries 3
+
+🤖 Modo autônomo iniciado: 3 testes em paralelo
+
+📋 Testes a executar:
+   1. login
+   2. cadastro
+   3. buscar
+
+✅ 1. login - PASSOU
+✅ 2. cadastro - PASSOU
+❌ 3. buscar - FALHOU
+
+Total: 3 testes
+✅ Passou: 2
+❌ Falhou: 1
+⏱️  Tempo total: 45s
+```
+
+**Benefícios:**
+- ⚡ Mais rápido que executar sequencialmente
+- 📊 Resumo claro de todos os testes
+- 🎯 Prefixo `[Teste N/Total]` para identificar cada teste
+- ✅ Exit code 0 se todos passarem, 1 se algum falhar
+
 ## [2.2.0] - 2026-03-28
 
 ### 🚀 Correção Crítica: Modo Auto Funcionando 100%
