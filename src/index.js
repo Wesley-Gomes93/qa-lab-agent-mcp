@@ -19,6 +19,7 @@ import { detectFlakyPatterns, detectMobileMappingInvisible, formatLearnedMessage
 import { collectTestFiles, detectDeviceConfig, detectProjectStructure, getFrameworkCwd, inferFrameworkFromFile, isTestFile, matchesFramework, analyzeCodeRisks } from "./core/project-structure.js";
 import { applySelectorFixAndRetry } from "./core/llm-call.js";
 import { parseTestRunResult, recordMetricEvent, extractFailuresFromOutput } from "./core/tool-helpers.js";
+import { buildRunReport, writeRunReportFile, defaultLatestReportPath } from "./core/run-report.js";
 import { handleCLI } from "./cli/commands.js";
 
 const PROJECT_ROOT = process.cwd();
@@ -26,7 +27,7 @@ config({ path: path.join(PROJECT_ROOT, ".env") });
 
 const server = new McpServer({
   name: "mcp-lab-agent",
-  version: "2.1.9",
+  version: "2.3.2",
 });
 
 // ============================================================================
@@ -34,6 +35,7 @@ const server = new McpServer({
 // ============================================================================
 
 const METRICS_FILE = path.join(PROJECT_ROOT, ".qa-lab-metrics.json");
+const FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
 
 function appendMetricsEvent(event) {
   recordMetricEvent(event);
@@ -324,6 +326,7 @@ server.registerTool(
       device: z.string().optional().describe("Device/configuration para mobile. Se vazio, detecta de qa-lab-agent.config.json, wdio.conf ou .detoxrc."),
       explainOnFailure: z.boolean().optional().describe("Se true, quando falhar gera automaticamente: O que aconteceu, Por que falhou, O que fazer, Sugestão de correção. Requer API key."),
       autoFixSelector: z.boolean().optional().describe("Se true e falhar por seletor, aplica correção automaticamente e tenta novamente. Requer spec e API key. Default: true para mobile."),
+      writeJsonReport: z.boolean().optional().describe("Se true, grava relatório JSON em .qa-lab-reports/latest.json (CI / baseline)."),
     }),
     outputSchema: z.object({
       status: z.enum(["passed", "failed", "not_found"]),
@@ -332,7 +335,7 @@ server.registerTool(
       runOutput: z.string().optional(),
     }),
   },
-  async ({ framework, spec, suite, explainOnFailure, device, autoFixSelector }) => {
+  async ({ framework, spec, suite, explainOnFailure, device, autoFixSelector, writeJsonReport }) => {
     const structure = detectProjectStructure();
 
     if (!structure.hasTests) {
@@ -532,6 +535,25 @@ server.registerTool(
       runOutput: !result.passed ? result.runOutput : undefined,
       autoFixed: autoFixed || undefined,
     };
+
+    if (writeJsonReport) {
+      try {
+        const report = buildRunReport({
+          projectRoot: PROJECT_ROOT,
+          framework: selectedFramework,
+          spec: spec || null,
+          cmd,
+          args,
+          cwd,
+          exitCode: result.exitCode,
+          runOutput: result.runOutput || "",
+          durationMs: (result.durationSeconds || 0) * 1000,
+        });
+        const reportPath = defaultLatestReportPath(PROJECT_ROOT);
+        writeRunReportFile(report, reportPath);
+        structured.reportPath = reportPath;
+      } catch {}
+    }
 
     if (!result.passed && explainOnFailure && result.runOutput) {
       const explainResult = await generateFailureExplanation(result.runOutput, spec || undefined);

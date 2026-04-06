@@ -1,5 +1,8 @@
 node_modules
-.env
+# .env e cópias/backups (.env≈, .env~, .env.save, etc.) — não versionar
+.env*
+!.env.example
+!**/.env.example
 test-results/
 coverage/
 test/fixtures/**/node_modules
@@ -7,6 +10,4 @@ test/fixtures/**/node_modules
 .qa-lab-last-failure.log
 .qa-lab-metrics.json
 .DS_Store
-
-# Documentação (mantida localmente, não sobe pro repo)
-docs/
+.qa-lab-reports/
