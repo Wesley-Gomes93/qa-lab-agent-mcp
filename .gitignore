@@ -1,5 +1,8 @@
 node_modules
-.env
+# .env e cópias/backups (.env≈, .env~, .env.save, etc.) — não versionar
+.env*
+!.env.example
+!**/.env.example
 test-results/
 coverage/
 test/fixtures/**/node_modules
