@@ -26,7 +26,6 @@
     "test:report": "vitest run --reporter=default --reporter=json --outputFile=test-results/results.json",
     "lint": "eslint src vitest.config.js eslint.config.js",
     "lint:fix": "eslint src vitest.config.js eslint.config.js --fix",
-    "resume:html": "node curriculos/generate-pdf.mjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
