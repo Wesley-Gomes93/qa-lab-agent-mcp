@@ -1,6 +1,6 @@
 {
   "name": "mcp-lab-agent",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Sistema de Inteligência em Qualidade de Software: executa, analisa, prevê, recomenda e aprende. Memória local + Learning Hub.",
   "type": "module",
   "main": "dist/index.js",
@@ -24,6 +24,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:report": "vitest run --reporter=default --reporter=json --outputFile=test-results/results.json",
+    "lint": "eslint src vitest.config.js eslint.config.js",
+    "lint:fix": "eslint src vitest.config.js eslint.config.js --fix",
     "resume:html": "node curriculos/generate-pdf.mjs",
     "prepublishOnly": "npm run build"
   },
@@ -46,8 +48,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Wesley-Gomes93/mcp-lab-agent.git"
+    "url": "git+https://github.com/Wesley-Gomes93/qa-lab-agent-mcp.git"
   },
+  "bugs": {
+    "url": "https://github.com/Wesley-Gomes93/qa-lab-agent-mcp/issues"
+  },
+  "homepage": "https://github.com/Wesley-Gomes93/qa-lab-agent-mcp#readme",
   "author": "Wesley Gomes",
   "license": "MIT",
   "engines": {
@@ -63,7 +69,10 @@
     "playwright": "^1.58.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.15.0",
     "@vitest/coverage-v8": "^2.1.0",
+    "eslint": "^9.15.0",
+    "globals": "^15.12.0",
     "tsup": "^8.3.5",
     "typescript": "^5",
     "vitest": "^2.1.0"

@@ -1,6 +1,12 @@
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
+import {
+  buildRunReport,
+  compareToBaseline,
+  defaultLatestReportPath,
+  writeRunReportFile,
+} from "../core/run-report.js";
 import { detectDeviceConfig, detectProjectStructure, getFrameworkCwd } from "../core/project-structure.js";
 import { loadProjectMemory, saveProjectMemory, getMemoryStats, analyzeTestStability } from "../core/memory.js";
 import { resolveLLMProvider } from "../core/llm-router.js";
@@ -50,7 +56,10 @@ COMANDOS CLI:
   report [--full]                        Relatório de evolução e aprendizado (--full = completo com recomendações)
   metrics-report [--json] [--output FILE] [path1 path2 ...]  Relatório de métricas (método, resultado). Sem paths = projeto atual.
   flaky-report [--runs N] [--spec FILE] [--output FILE]      Detecta testes flaky: roda N vezes (default 3), identifica intermitência e causa provável
-  run [spec] [--device NAME] [--no-auto-fix]                 Roda testes: detecta device, executa e aplica auto-fix de seletor se falhar
+  run [spec] [--device NAME] [--no-auto-fix] [--json-report] [--output FILE] [--compare-baseline FILE] [--save-baseline FILE]
+                                        Roda testes; relatório JSON para CI; baseline opcional
+  audit [--baseline FILE] [--current FILE]   Compara relatório atual ao baseline (deploy gate)
+  scan [--json]                         Alias: detect (estrutura do projeto)
   detect [--json]                       Detecta frameworks e estrutura
   route <tarefa>                        Sugere qual ferramenta usar
   list                                  Lista ferramentas MCP disponíveis
@@ -89,7 +98,7 @@ AMBIENTES CORPORATIVOS (APIs bloqueadas):
     return true;
   }
 
-  if (cmd === "detect") {
+  if (cmd === "scan" || cmd === "detect") {
     const structure = detectProjectStructure();
     const jsonOnly = process.argv.includes("--json");
     if (jsonOnly) {
@@ -97,7 +106,7 @@ AMBIENTES CORPORATIVOS (APIs bloqueadas):
     } else {
       const lines = [
         "",
-        "mcp-lab-agent · detecção",
+        cmd === "scan" ? "mcp-lab-agent · scan" : "mcp-lab-agent · detecção",
         "─".repeat(40),
         `Frameworks: ${structure.testFrameworks.length ? structure.testFrameworks.join(", ") : "nenhum"}`,
         `Pastas:    ${structure.testDirs.length ? structure.testDirs.join(", ") : "nenhuma"}`,
@@ -213,6 +222,11 @@ ${format === "full" && recommendations.length > 0 ? `\nRecomendações para apri
 
   if (cmd === "run") {
     await handleRunCommand();
+    return true;
+  }
+
+  if (cmd === "audit") {
+    await handleAuditCommand();
     return true;
   }
 
@@ -505,7 +519,7 @@ async function handleFlakyReportCommand() {
     console.log("\n" + report);
   }
 
-  process.exit(isFlaky ? 1 : 0);
+  process.exit(failed > 0 || isFlaky ? 1 : 0);
 }
 
 function getRunCommand(structure, fw, spec) {
@@ -547,7 +561,29 @@ async function handleRunCommand() {
   const deviceIdx = argv.indexOf("--device");
   const device = deviceIdx !== -1 && argv[deviceIdx + 1] ? argv[deviceIdx + 1] : null;
   const noAutoFix = argv.includes("--no-auto-fix");
-  const spec = argv.filter((a) => !a.startsWith("--") && a !== "run")[0] || null;
+  const jsonReport = argv.includes("--json-report");
+  const outputIdx = argv.indexOf("--output");
+  const outputFile =
+    outputIdx !== -1 && argv[outputIdx + 1] ? path.resolve(argv[outputIdx + 1]) : null;
+  const compareIdx = argv.indexOf("--compare-baseline");
+  const compareBaselineFile =
+    compareIdx !== -1 && argv[compareIdx + 1] ? path.resolve(argv[compareIdx + 1]) : null;
+  const saveBaselineIdx = argv.indexOf("--save-baseline");
+  const saveBaselineFile =
+    saveBaselineIdx !== -1 && argv[saveBaselineIdx + 1]
+      ? path.resolve(argv[saveBaselineIdx + 1])
+      : null;
+  let spec = null;
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--device" || a === "--output" || a === "--compare-baseline" || a === "--save-baseline") {
+      i++;
+      continue;
+    }
+    if (a.startsWith("--")) continue;
+    spec = a;
+    break;
+  }
 
   const structure = detectProjectStructure();
   if (!structure.hasTests) {
@@ -600,11 +636,45 @@ async function handleRunCommand() {
     if (result.runOutput) console.log(result.runOutput.slice(0, 800) + (result.runOutput.length > 800 ? "\n..." : ""));
   }
 
+  const reportPath = outputFile || defaultLatestReportPath(PROJECT_ROOT);
+  if (jsonReport || outputFile || compareBaselineFile || saveBaselineFile) {
+    const report = buildRunReport({
+      projectRoot: PROJECT_ROOT,
+      framework: fw,
+      spec,
+      cmd,
+      args,
+      cwd,
+      exitCode: result.code,
+      runOutput: result.runOutput || result.output || "",
+      durationMs: result.durationMs,
+    });
+    writeRunReportFile(report, reportPath);
+    console.log(`📄 Run report: ${reportPath}`);
+    if (saveBaselineFile) {
+      writeRunReportFile(report, saveBaselineFile);
+      console.log(`📌 Baseline salvo: ${saveBaselineFile}`);
+    }
+    if (compareBaselineFile && fs.existsSync(compareBaselineFile)) {
+      const baseline = JSON.parse(fs.readFileSync(compareBaselineFile, "utf8"));
+      const cmp = compareToBaseline(report, baseline);
+      console.log(`\n🔍 Baseline gate: ${cmp.verdict.toUpperCase()}`);
+      cmp.reasons.forEach((r) => console.log(`   • ${r}`));
+      if (cmp.verdict === "fail") {
+        process.exit(1);
+      }
+      if (cmp.verdict === "inconclusive") {
+        process.exit(2);
+      }
+    }
+  }
+
   process.exit(result.passed ? 0 : 1);
 }
 
 function runTestsOnce(cmd, args, cwd, env = process.env) {
   return new Promise((resolve) => {
+    const start = Date.now();
     const child = spawn(cmd, args, {
       cwd,
       stdio: ["inherit", "pipe", "pipe"],
@@ -617,9 +687,59 @@ function runTestsOnce(cmd, args, cwd, env = process.env) {
     if (child.stderr) child.stderr.on("data", (d) => { stderr += d.toString(); });
     child.on("close", (code) => {
       const output = [stdout, stderr].filter(Boolean).join("\n");
-      resolve({ passed: code === 0, code: code ?? 1, output });
+      const durationMs = Date.now() - start;
+      resolve({
+        passed: code === 0,
+        code: code ?? 1,
+        output,
+        runOutput: output,
+        durationMs,
+      });
     });
   });
+}
+
+/**
+ * Compare two JSON run reports (baseline gate).
+ */
+async function handleAuditCommand() {
+  const argv = process.argv.slice(2);
+  const baselineIdx = argv.indexOf("--baseline");
+  const currentIdx = argv.indexOf("--current");
+  const baselinePath =
+    baselineIdx !== -1 && argv[baselineIdx + 1]
+      ? path.resolve(argv[baselineIdx + 1])
+      : path.join(PROJECT_ROOT, ".qa-lab-reports", "baseline.json");
+  const currentPath =
+    currentIdx !== -1 && argv[currentIdx + 1]
+      ? path.resolve(argv[currentIdx + 1])
+      : defaultLatestReportPath(PROJECT_ROOT);
+
+  if (!fs.existsSync(currentPath)) {
+    console.error(`❌ Relatório atual não encontrado: ${currentPath}\n   Rode: mcp-lab-agent run --json-report`);
+    process.exit(2);
+  }
+  if (!fs.existsSync(baselinePath)) {
+    console.error(`❌ Baseline não encontrado: ${baselinePath}\n   Rode: mcp-lab-agent run --save-baseline ${baselinePath}`);
+    process.exit(2);
+  }
+
+  let current;
+  let baseline;
+  try {
+    current = JSON.parse(fs.readFileSync(currentPath, "utf8"));
+    baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
+  } catch (e) {
+    console.error(`❌ Erro ao ler JSON: ${e.message}`);
+    process.exit(2);
+  }
+
+  const cmp = compareToBaseline(current, baseline);
+  const line = `\n📋 Audit (baseline gate)\n   Baseline: ${baselinePath}\n   Current:  ${currentPath}\n\n   Verdict: ${cmp.verdict.toUpperCase()}\n`;
+  console.log(line);
+  cmp.reasons.forEach((r) => console.log(`   • ${r}`));
+  console.log("");
+  process.exit(cmp.verdict === "fail" ? 1 : cmp.verdict === "inconclusive" ? 2 : 0);
 }
 
 async function handleMultipleAutoTests(testRequests, maxRetries) {

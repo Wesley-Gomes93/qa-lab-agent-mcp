@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.2] - 2026-04-05
+
+### Added
+
+- JSON run reports (`schemaVersion` 1.0) for CI: `mcp-lab-agent run --json-report [--output FILE]`, optional `--save-baseline` / `--compare-baseline`.
+- CLI `mcp-lab-agent audit` to compare two report files (deploy gate).
+- CLI `mcp-lab-agent scan` as alias for `detect`.
+- MCP tool `run_tests`: optional `writeJsonReport` writes `.qa-lab-reports/latest.json`.
+- GitHub Actions CI (lint, build, test), Dependabot, `CONTRIBUTING.md`, `SECURITY.md`, MIT `LICENSE`, `docs/CI_AND_REPORTS.md`.
+- ESLint (flat config) for `src/`.
+
+### Fixed
+
+- `flaky-report` exit code: fail when any run fails (not only when flaky).
+- `package.json` `repository` / `bugs` / `homepage` now point to `qa-lab-agent-mcp`.
+
 ## [2.3.1] - 2026-03-28
 
 ### 🐛 Fix: Learning Hub path.join Error

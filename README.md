@@ -3,6 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/mcp-lab-agent.svg)](https://www.npmjs.com/package/mcp-lab-agent)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/Wesley-Gomes93/qa-lab-agent-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Wesley-Gomes93/qa-lab-agent-mcp/actions/workflows/ci.yml)
 
 **PT-BR** | [English](#english)
 
@@ -376,17 +377,17 @@ npm install playwright
 ## Documentação
 
 - [CHANGELOG.md](CHANGELOG.md) — Histórico de versões
+- [docs/CI_AND_REPORTS.md](docs/CI_AND_REPORTS.md) — Relatórios JSON, baseline e CI gate
 - [slack-bot/README.md](slack-bot/README.md) — Slack Bot
 - [learning-hub/README.md](learning-hub/README.md) — Learning Hub
-- [docs/PORTFOLIO_COPY_PT-BR.md](docs/PORTFOLIO_COPY_PT-BR.md) — Copy em PT-BR para portfólio (Vercel)
 
 ---
 
 ## Desenvolvimento
 
 ```bash
-git clone https://github.com/Wesley-Gomes93/mcp-lab-agent
-cd mcp-lab-agent
+git clone https://github.com/Wesley-Gomes93/qa-lab-agent-mcp.git
+cd qa-lab-agent-mcp
 npm install
 npm run build
 npm test
@@ -398,6 +399,18 @@ npm test
 | `npm test` | Testes (Vitest) |
 | `npm run test:coverage` | Cobertura |
 | `npm run dev` | Build em watch |
+| `npm run lint` | ESLint (`src/`) |
+
+### CI / relatório JSON (gate no pipeline)
+
+```bash
+mcp-lab-agent run --json-report
+mcp-lab-agent run --json-report --save-baseline .qa-lab-reports/baseline.json
+mcp-lab-agent run --json-report --compare-baseline .qa-lab-reports/baseline.json
+mcp-lab-agent audit --baseline .qa-lab-reports/baseline.json
+```
+
+Detalhes: [docs/CI_AND_REPORTS.md](docs/CI_AND_REPORTS.md).
 
 ---
 
