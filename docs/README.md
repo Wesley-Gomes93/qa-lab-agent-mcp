@@ -7,8 +7,8 @@
 | Doc | Quando usar |
 |-----|-------------|
 | [QUICKSTART.md](./QUICKSTART.md) | Subir em 5 minutos |
-| [INSTALL.md](./INSTALL.md) | Instalação / npm / Cursor |
-| [CURSOR_SETUP.md](./CURSOR_SETUP.md) | MCP no Cursor |
+| [INSTALL.md](./INSTALL.md) | Instalação / npm / MCP |
+| [CURSOR_SETUP.md](./CURSOR_SETUP.md) | Setup MCP na IDE |
 | [DEMO_60S.md](./DEMO_60S.md) | Demo de 60s (falha → por quê → prova) |
 | [COMO_USAR.md](./COMO_USAR.md) | Fluxos do dia a dia |
 | [CLI.md](./CLI.md) | Comandos CLI |
