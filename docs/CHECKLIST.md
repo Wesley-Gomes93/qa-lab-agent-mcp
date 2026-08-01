@@ -34,9 +34,9 @@
 - [x] `write_test` - Grava specs no disco
 - [x] `analyze_failures` - Analisa falhas de testes
 
-### 5. Configuração do Cursor
+### 5. Configuração da IDE
 
-Para testar, adicione ao `~/.cursor/mcp.json`:
+Para testar, adicione ao `~/.config/mcp-lab-agent/mcp.json`:
 
 \`\`\`json
 {
@@ -77,14 +77,14 @@ OPENAI_API_KEY=sk-...       # OpenAI (pago)
 
 ### 7. Como Testar
 
-1. **Configurar o MCP no Cursor:**
-   - Abra Cursor Settings (Cmd+,)
+1. **Configurar o MCP na IDE:**
+   - Abra configurações da IDE (Cmd+,)
    - Vá em "Tools & MCP"
    - Adicione a configuração acima
-   - Reinicie o Cursor
+   - Reinicie a IDE
 
 2. **Testar em um projeto:**
-   - Abra qualquer projeto no Cursor
+   - Abra qualquer projeto na IDE
    - No chat, digite: "Detecte a estrutura do meu projeto"
    - O MCP deve responder com frameworks detectados
 
@@ -104,10 +104,10 @@ OPENAI_API_KEY=sk-...       # OpenAI (pago)
 
 ### 9. Troubleshooting
 
-**Se o MCP não aparecer no Cursor:**
-- Verifique se o arquivo `~/.cursor/mcp.json` está correto
-- Reinicie o Cursor completamente
-- Verifique os logs do Cursor (Help → Toggle Developer Tools → Console)
+**Se o MCP não aparecer na IDE:**
+- Verifique se o arquivo `~/.config/mcp-lab-agent/mcp.json` está correto
+- Reinicie a IDE completamente
+- Verifique os logs da IDE (Help → Toggle Developer Tools → Console)
 
 **Se o servidor não iniciar:**
 - Verifique se Node.js >= 18 está instalado: `node --version`
@@ -119,4 +119,4 @@ OPENAI_API_KEY=sk-...       # OpenAI (pago)
 ✅ **Tudo está pronto para teste!**
 
 O projeto está buildado, as dependências estão instaladas, e o servidor MCP está funcional.
-Basta configurar no Cursor e testar em um projeto real.
+Basta configurar na IDE e testar em um projeto real.

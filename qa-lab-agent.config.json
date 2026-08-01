@@ -1,6 +1,6 @@
 {
   "mcp": {
-    "description": "Para Cursor: adicione ao ~/.cursor/mcp.json",
+    "description": "Para a IDE: adicione ao ~/.config/mcp-lab-agent/mcp.json",
     "command": "npx",
     "args": ["-y", "mcp-lab-agent@latest"],
     "cwd": "${workspaceFolder}"

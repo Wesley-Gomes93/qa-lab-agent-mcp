@@ -70,7 +70,7 @@ Você pode mencionar o bot em qualquer canal e ele executa comandos:
 
 ### **6. Configurar Credenciais Localmente**
 
-Edite o arquivo `~/.cursor/mcp.json`:
+Edite o arquivo `~/.config/mcp-lab-agent/mcp.json`:
 
 ```json
 {
@@ -207,7 +207,7 @@ Total: 3 testes
 
 1. ✅ Criar app no Slack (passo 1-5)
 2. ✅ Copiar tokens (Bot Token e App Token)
-3. ✅ Editar `~/.cursor/mcp.json` com os tokens
+3. ✅ Editar `~/.config/mcp-lab-agent/mcp.json` com os tokens
 4. ✅ Executar: `mcp-lab-agent slack-bot`
 5. ✅ Testar no Slack: `@QA Lab Agent stats`
 

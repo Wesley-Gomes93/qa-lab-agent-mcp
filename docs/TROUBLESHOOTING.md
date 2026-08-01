@@ -1,19 +1,19 @@
 # 🔧 Troubleshooting - mcp-lab-agent
 
-## ❌ Problema: "No MCP Tools" no Cursor
+## ❌ Problema: "No MCP Tools" na IDE
 
 ### Causa 1: JSON duplicado ou malformado
 
-**Sintoma:** O arquivo `~/.cursor/mcp.json` tem `"mcpServers"` duplicado
+**Sintoma:** O arquivo `~/.config/mcp-lab-agent/mcp.json` tem `"mcpServers"` duplicado
 
 **Solução:**
 
 ```bash
 # Verifique o arquivo
-cat ~/.cursor/mcp.json
+cat ~/.config/mcp-lab-agent/mcp.json
 
 # Se estiver duplicado, corrija com:
-cat > ~/.cursor/mcp.json << 'EOF'
+cat > ~/.config/mcp-lab-agent/mcp.json << 'EOF'
 {
   "mcpServers": {
     "qa-lab": {
@@ -26,11 +26,11 @@ cat > ~/.cursor/mcp.json << 'EOF'
 EOF
 ```
 
-### Causa 2: Cursor não foi reiniciado
+### Causa 2: IDE não foi reiniciado
 
 **Solução:**
-1. Feche **TODAS** as janelas do Cursor (Cmd+Q)
-2. Abra o Cursor novamente
+1. Feche **TODAS** as janelas da IDE (Cmd+Q)
+2. Abra a IDE novamente
 3. Aguarde 10-15 segundos para o MCP carregar
 
 ### Causa 3: Caminho incorreto
@@ -58,9 +58,9 @@ chmod +x /Users/wesleyluiz/Desktop/mcp-lab-agent/dist/index.js
 
 ## ❌ Problema: MCP carrega mas não funciona
 
-### Verificar logs do Cursor
+### Verificar logs da IDE
 
-1. Abra o Cursor
+1. Abra a IDE
 2. Menu: **Help → Toggle Developer Tools**
 3. Vá na aba **Console**
 4. Procure por erros relacionados a "mcp" ou "qa-lab"
@@ -88,7 +88,7 @@ which node
 # Exemplo: /usr/local/bin/node ou /opt/homebrew/bin/node
 ```
 
-Atualize `~/.cursor/mcp.json`:
+Atualize `~/.config/mcp-lab-agent/mcp.json`:
 
 ```json
 {
@@ -139,7 +139,7 @@ ls -l /Users/wesleyluiz/Desktop/mcp-lab-agent/dist/index.js
 # Deve existir e ter permissão de execução (rwxr-xr-x)
 
 # 3. Verificar mcp.json
-cat ~/.cursor/mcp.json
+cat ~/.config/mcp-lab-agent/mcp.json
 # Deve ter JSON válido sem duplicações
 
 # 4. Testar servidor
@@ -168,20 +168,20 @@ node dist/index.js
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' | node dist/index.js
 ```
 
-Se funcionar, o problema está na configuração do Cursor.
+Se funcionar, o problema está na configuração da IDE.
 
-### Verificar se o Cursor está lendo o mcp.json
+### Verificar se a IDE está lendo o mcp.json
 
 ```bash
 # Verificar se o arquivo existe
-ls -la ~/.cursor/mcp.json
+ls -la ~/.config/mcp-lab-agent/mcp.json
 
 # Verificar permissões
-ls -l ~/.cursor/mcp.json
+ls -l ~/.config/mcp-lab-agent/mcp.json
 # Deve ser legível (rw-r--r--)
 
 # Verificar conteúdo
-cat ~/.cursor/mcp.json | python3 -m json.tool
+cat ~/.config/mcp-lab-agent/mcp.json | python3 -m json.tool
 # Deve mostrar JSON válido formatado
 ```
 
@@ -195,7 +195,7 @@ cat ~/.cursor/mcp.json | python3 -m json.tool
    ./test-server.sh
    ```
 
-2. **Verifique os logs do Cursor:**
+2. **Verifique os logs da IDE:**
    - Help → Toggle Developer Tools → Console
    - Procure por erros em vermelho
 
@@ -209,8 +209,8 @@ cat ~/.cursor/mcp.json | python3 -m json.tool
    - https://github.com/Wesley-Gomes93/mcp-lab-agent/issues
    - Inclua:
      - Output de `./test-server.sh`
-     - Conteúdo de `~/.cursor/mcp.json`
-     - Logs do Cursor (Developer Tools)
+     - Conteúdo de `~/.config/mcp-lab-agent/mcp.json`
+     - Logs da IDE (Developer Tools)
      - Versão do Node: `node --version`
      - Sistema operacional
 
@@ -218,7 +218,7 @@ cat ~/.cursor/mcp.json | python3 -m json.tool
 
 ## ✅ Configuração Correta Final
 
-Arquivo `~/.cursor/mcp.json` deve estar assim:
+Arquivo `~/.config/mcp-lab-agent/mcp.json` deve estar assim:
 
 ```json
 {
@@ -236,4 +236,4 @@ Arquivo `~/.cursor/mcp.json` deve estar assim:
 - ✅ Apenas UM `"mcpServers"` no arquivo
 - ✅ Caminho completo e correto para `dist/index.js`
 - ✅ JSON válido (sem vírgulas extras, aspas corretas)
-- ✅ Cursor reiniciado completamente após mudanças
+- ✅ IDE reiniciado completamente após mudanças

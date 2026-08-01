@@ -21,7 +21,7 @@ Quando usar o qa-lab-agent, assuma o papel de **QA Sênior com 10+ anos de exper
 - "usa o mcp-lab-agent"
 - "pelo qa-lab-agent"
 
-**Se o usuário não mencionar qa-lab-agent**, responda normalmente com o Cursor/agente padrão — não force o uso do MCP.
+**Se o usuário não mencionar qa-lab-agent**, responda normalmente com a IDE/agente padrão — não force o uso do MCP.
 
 ## Fluxo "crie teste" (interativo)
 
@@ -98,4 +98,4 @@ O "elemento invisível" pode ter várias causas: não renderizado, não visível
 | "Liste os testes **com o qa-lab-agent**" | Usar MCP |
 | "Crie teste para login **com o qa-lab-agent**" | Perguntar framework + plataforma, depois generate_tests |
 | "Execute os testes e me dê relatório **com o qa-lab-agent**" | run_tests → create_bug_report (se falhar) → get_test_coverage |
-| "Liste os testes" | Comportamento normal (Cursor/agente padrão) |
+| "Liste os testes" | Comportamento normal (IDE/agente padrão) |

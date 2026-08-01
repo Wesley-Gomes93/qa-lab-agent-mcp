@@ -3,7 +3,7 @@
  * QA Lab Slack Bot
  * Recebe @mentions no Slack, executa mcp-lab-agent e posta relatório.
  *
- * Config: ~/.cursor/mcp.json (qa-lab-agent.slack) ou .env
+ * Config: ~/.config/mcp-lab-agent/mcp.json (qa-lab-agent.slack) ou .env
  *
  * Dois modos:
  * 1) Socket Mode (recomendado para PC corporativo): botToken + appToken (slack_app_token)
@@ -27,7 +27,7 @@ const useSocketMode = !forceHttp && !!(appToken && appToken.startsWith("xapp-"))
 
 if (!token || !token.startsWith("xoxb-")) {
   console.error(
-    "Configure botToken (xoxb-...) no ~/.cursor/mcp.json ou .env (SLACK_BOT_TOKEN).\n" +
+    "Configure botToken (xoxb-...) no ~/.config/mcp-lab-agent/mcp.json ou .env (SLACK_BOT_TOKEN).\n" +
     "Onde: api.slack.com → sua app → OAuth & Permissions → Bot User OAuth Token"
   );
   process.exit(1);

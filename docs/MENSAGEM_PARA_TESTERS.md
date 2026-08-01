@@ -9,13 +9,13 @@ Use este template para convidar pessoas para testar seu MCP!
 ```
 Olá! 👋
 
-Estou desenvolvendo um assistente de IA para testes que funciona dentro do Cursor. 
+Estou desenvolvendo um assistente de IA para testes que funciona dentro da IDE. 
 
 Ele detecta automaticamente frameworks de teste, gera testes com IA, executa e analisa falhas.
 
 Pode me ajudar a testar? Leva só 2 minutos para instalar:
 
-1. Edite ~/.cursor/mcp.json
+1. Edite ~/.config/mcp-lab-agent/mcp.json
 2. Cole esta config:
 {
   "mcpServers": {
@@ -26,7 +26,7 @@ Pode me ajudar a testar? Leva só 2 minutos para instalar:
     }
   }
 }
-3. Reinicie o Cursor
+3. Reinicie a IDE
 4. Digite no chat: "Detecte a estrutura do meu projeto"
 
 Guia completo: https://github.com/Wesley-Gomes93/mcp-lab-agent/blob/main/TESTE_COMIGO.md
@@ -38,7 +38,7 @@ Obrigado! 🙏
 
 ## 📧 Versão Média (Email)
 
-**Assunto:** Ajuda para testar meu MCP de QA no Cursor?
+**Assunto:** Ajuda para testar meu MCP de QA na IDE?
 
 ```
 Olá [Nome]!
@@ -46,23 +46,23 @@ Olá [Nome]!
 Estou desenvolvendo um projeto open source e gostaria da sua ajuda para testar!
 
 🎯 O que é?
-Um MCP (Model Context Protocol) server que adiciona superpoderes de QA ao Cursor:
+Um MCP (Model Context Protocol) server que adiciona superpoderes de QA à IDE:
 - Detecta automaticamente frameworks de teste (Cypress, Playwright, Jest, etc.)
 - Gera testes com IA
 - Executa e analisa testes
 - Sugere correções automáticas
 - Cria bug reports
 
-Você só conversa normalmente com o Cursor, tipo:
+Você só conversa normalmente com a IDE, tipo:
 "Detecte a estrutura do meu projeto"
 "Gere um teste para o login"
 "Rode os testes e analise as falhas"
 
 ⚡ Instalação (2 minutos):
 
-1. Edite ~/.cursor/mcp.json:
-   mkdir -p ~/.cursor
-   nano ~/.cursor/mcp.json
+1. Edite ~/.config/mcp-lab-agent/mcp.json:
+   mkdir -p ~/.config/mcp-lab-agent
+   nano ~/.config/mcp-lab-agent/mcp.json
 
 2. Cole esta configuração:
    {
@@ -75,7 +75,7 @@ Você só conversa normalmente com o Cursor, tipo:
      }
    }
 
-3. Salve (Ctrl+O, Enter, Ctrl+X) e reinicie o Cursor
+3. Salve (Ctrl+O, Enter, Ctrl+X) e reinicie a IDE
 
 4. Teste: "Detecte a estrutura do meu projeto"
 
@@ -99,7 +99,7 @@ Wesley
 
 ## 📝 Versão Longa (LinkedIn/Blog/Fórum)
 
-**Título:** Testadores procuram-se! MCP de QA para Cursor
+**Título:** Testadores procuram-se! MCP de QA para a IDE
 
 ```
 Olá comunidade! 👋
@@ -108,7 +108,7 @@ Estou desenvolvendo um projeto open source e preciso da ajuda de vocês para tes
 
 ## 🎯 O que é o mcp-lab-agent?
 
-Um MCP (Model Context Protocol) server que transforma o Cursor em um assistente de QA automation poderoso.
+Um MCP (Model Context Protocol) server que transforma a IDE em um assistente de QA automation poderoso.
 
 ### Features:
 ✅ Detecção automática de frameworks (Cypress, Playwright, Jest, Vitest, Mocha, etc.)
@@ -121,20 +121,20 @@ Um MCP (Model Context Protocol) server que transforma o Cursor em um assistente 
 
 ### Como funciona?
 
-Você simplesmente conversa com o Cursor:
+Você simplesmente conversa com a IDE:
 - "Detecte a estrutura do meu projeto"
 - "Gere um teste E2E para o fluxo de checkout"
 - "Rode os testes e analise as falhas"
 - "Sugira correções para os erros"
 - "Crie um bug report"
 
-O Cursor entende e usa as ferramentas certas automaticamente!
+A IDE entende e usa as ferramentas certas automaticamente!
 
 ## ⚡ Como testar (2 minutos)
 
-### 1. Configure o MCP no Cursor
+### 1. Configure o MCP na IDE
 
-Edite `~/.cursor/mcp.json`:
+Edite `~/.config/mcp-lab-agent/mcp.json`:
 
 ```json
 {
@@ -148,7 +148,7 @@ Edite `~/.cursor/mcp.json`:
 }
 ```
 
-### 2. Reinicie o Cursor
+### 2. Reinicie a IDE
 
 ### 3. Teste em qualquer projeto
 
@@ -205,7 +205,7 @@ Se funcionar bem para você, ficarei feliz se puder:
 
 **Bons testes!** 🚀
 
-#cursor #mcp #qa #testing #automation #opensource
+#ide #mcp #qa #testing #automation #opensource
 ```
 
 ---
@@ -215,7 +215,7 @@ Se funcionar bem para você, ficarei feliz se puder:
 ### Slide 1: Título
 ```
 mcp-lab-agent
-Assistente de IA para QA no Cursor
+Assistente de IA para QA na IDE
 
 Por Wesley Gomes
 ```
@@ -230,7 +230,7 @@ Por Wesley Gomes
 
 ### Slide 3: Solução
 ```
-✅ Converse naturalmente com o Cursor
+✅ Converse naturalmente com a IDE
 ✅ Ele detecta seu framework automaticamente
 ✅ Gera testes com IA
 ✅ Executa e analisa falhas
@@ -258,7 +258,7 @@ Por Wesley Gomes
 ```
 MCP (Model Context Protocol)
 ↓
-Cursor AI
+IDE AI
 ↓
 Ferramentas de QA
 ↓
@@ -276,9 +276,9 @@ Python: pytest, Robot Framework
 
 ### Slide 7: Instalação
 ```
-1. Edite ~/.cursor/mcp.json
+1. Edite ~/.config/mcp-lab-agent/mcp.json
 2. Cole a config
-3. Reinicie o Cursor
+3. Reinicie a IDE
 4. Pronto!
 
 2 minutos ⏱️
@@ -313,13 +313,13 @@ LinkedIn: [seu-linkedin]
 
 ```
 [0:00-0:10] Intro
-"Olá! Hoje vou mostrar o mcp-lab-agent, um assistente de IA para testes que funciona dentro do Cursor."
+"Olá! Hoje vou mostrar o mcp-lab-agent, um assistente de IA para testes que funciona dentro da IDE."
 
 [0:10-0:20] Problema
-"Escrever e manter testes é chato, certo? E se você pudesse simplesmente conversar com o Cursor e ele fazer isso por você?"
+"Escrever e manter testes é chato, certo? E se você pudesse simplesmente conversar com a IDE e ele fazer isso por você?"
 
 [0:20-0:40] Demo - Instalação
-"A instalação é super simples. Você só precisa editar um arquivo de configuração, colar esta config, e reiniciar o Cursor. Leva 2 minutos."
+"A instalação é super simples. Você só precisa editar um arquivo de configuração, colar esta config, e reiniciar a IDE. Leva 2 minutos."
 
 [0:40-1:20] Demo - Uso
 "Agora veja a mágica. Eu só converso normalmente:
@@ -335,9 +335,9 @@ LinkedIn: [seu-linkedin]
 "O projeto é open source e preciso da sua ajuda para testar! Link na descrição. Se gostou, deixa uma estrela no GitHub. Valeu!"
 
 [Descrição do vídeo]
-🚀 mcp-lab-agent - Assistente de IA para QA no Cursor
+🚀 mcp-lab-agent - Assistente de IA para QA na IDE
 
-Transforme o Cursor em um assistente de QA automation poderoso!
+Transforme a IDE em um assistente de QA automation poderoso!
 
 ✅ Detecta frameworks automaticamente
 ✅ Gera testes com IA
@@ -351,7 +351,7 @@ Transforme o Cursor em um assistente de QA automation poderoso!
 
 🙏 Ajude a testar e dê seu feedback!
 
-#cursor #mcp #qa #testing #automation
+#ide #mcp #qa #testing #automation
 ```
 
 ---

@@ -1,6 +1,6 @@
 # mcp-lab-agent — CLI
 
-Interface de linha de comando para uso rápido sem abrir o Cursor.
+Interface de linha de comando para uso rápido sem abrir a IDE.
 
 ---
 
@@ -18,7 +18,7 @@ npx mcp-lab-agent <comando>
 
 | Comando | Descrição |
 |---------|-----------|
-| `mcp-lab-agent` | Sem argumentos: inicia o servidor MCP (usado pelo Cursor) |
+| `mcp-lab-agent` | Sem argumentos: inicia o servidor MCP (usado pela IDE) |
 | `mcp-lab-agent --help` | Exibe ajuda |
 | `mcp-lab-agent detect` | Detecta frameworks e estrutura do projeto (JSON) |
 | `mcp-lab-agent route "tarefa"` | Sugere qual ferramenta usar para a tarefa |
@@ -78,7 +78,7 @@ mcp-lab-agent list
 
 ## Uso no MCP
 
-O modo principal é via **MCP** no Cursor. O CLI serve para:
+O modo principal é via **MCP** na IDE. O CLI serve para:
 
 - Validar a detecção antes de configurar o MCP
 - Descobrir qual ferramenta usar

@@ -76,8 +76,8 @@ EXEMPLOS:
   mcp-lab-agent run specs/login.spec.js --device iPhone_15
   mcp-lab-agent detect --json
 
-INTEGRAÇÃO MCP (Cursor/Cline/Windsurf):
-  Adicione ao ~/.cursor/mcp.json:
+INTEGRAÇÃO MCP (IDE com MCP (Cline, Windsurf, etc.)):
+  Adicione ao ~/.config/mcp-lab-agent/mcp.json:
   {
     "mcpServers": {
       "qa-lab-agent": {

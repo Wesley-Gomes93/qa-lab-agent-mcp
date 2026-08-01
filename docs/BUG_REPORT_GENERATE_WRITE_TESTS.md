@@ -15,7 +15,7 @@ Error: No tests found.
 Make sure that arguments are regular expressions matching test files.
 ```
 
-**Causa raiz identificada:** O `generate_tests` retorna o código gerado apenas em `structuredContent.specContent`, mas o texto em `content` não inclui o código. O cliente MCP (Cursor/IDE) pode receber apenas `content`, então o agente não tem acesso ao `specContent` para passar ao `write_test`. Resultado: `write_test` é chamado com `content` vazio ou incorreto, gerando arquivos vazios.
+**Causa raiz identificada:** O `generate_tests` retorna o código gerado apenas em `structuredContent.specContent`, mas o texto em `content` não inclui o código. O cliente MCP (IDE) pode receber apenas `content`, então o agente não tem acesso ao `specContent` para passar ao `write_test`. Resultado: `write_test` é chamado com `content` vazio ou incorreto, gerando arquivos vazios.
 
 ---
 
@@ -95,7 +95,7 @@ O `qa_auto` (modo autônomo) gera e grava internamente, sem depender da orquestr
 
 ## Ambiente de reprodução
 
-- **IDE:** Cursor
+- **IDE:** IDE
 - **MCP:** mcp-lab-agent (npx -y mcp-lab-agent@latest)
 - **Framework de teste:** Playwright
 - **Sintoma:** "No tests found" ao rodar testes gerados via chat

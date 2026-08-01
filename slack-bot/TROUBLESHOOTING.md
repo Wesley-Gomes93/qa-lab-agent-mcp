@@ -29,7 +29,7 @@ Seguindo a [documentação oficial](https://docs.slack.dev/app-management/quicks
 
 ### 3. Config correta no mcp.json
 
-O `~/.cursor/mcp.json` precisa ter a seção `qa-lab-agent.slack`:
+O `~/.config/mcp-lab-agent/mcp.json` precisa ter a seção `qa-lab-agent.slack`:
 
 ```json
 {

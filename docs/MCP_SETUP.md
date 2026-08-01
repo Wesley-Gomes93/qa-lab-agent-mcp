@@ -1,17 +1,17 @@
-# 🎯 Configuração do Cursor - mcp-lab-agent
+# 🎯 Configuração da IDE - mcp-lab-agent
 
-## Passo a Passo para Configurar o MCP no Cursor
+## Passo a Passo para Configurar o MCP na IDE
 
 ### Opção 1: Usando o Build Local (Recomendado para Teste)
 
-1. **Localize ou crie o arquivo de configuração do Cursor:**
+1. **Localize ou crie o arquivo de configuração da IDE:**
 
    ```bash
    # Crie o diretório se não existir
-   mkdir -p ~/.cursor
+   mkdir -p ~/.config/mcp-lab-agent
    
    # Edite o arquivo de configuração
-   nano ~/.cursor/mcp.json
+   nano ~/.config/mcp-lab-agent/mcp.json
    ```
 
 2. **Adicione a seguinte configuração:**
@@ -34,8 +34,8 @@
    - No nano: `Ctrl+O`, `Enter`, `Ctrl+X`
    - No vim: `:wq`
 
-4. **Reinicie o Cursor completamente:**
-   - Feche todas as janelas do Cursor
+4. **Reinicie a IDE completamente:**
+   - Feche todas as janelas da IDE
    - Abra novamente
 
 ### Opção 2: Usando npx (Após Publicar no npm)
@@ -70,9 +70,9 @@
 
 ### 1. Verificar se o MCP está carregado
 
-1. Abra o Cursor
+1. Abra a IDE
 2. Abra qualquer projeto
-3. Abra o chat do Cursor (Cmd+L ou Ctrl+L)
+3. Abra o chat da IDE (Cmd+L ou Ctrl+L)
 4. Clique no ícone de ferramentas (🔧) ou procure por "Tools"
 5. Você deve ver as ferramentas do `qa-lab`:
    - `detect_project`
@@ -84,7 +84,7 @@
 
 ### 2. Testar o MCP
 
-Digite no chat do Cursor:
+Digite no chat da IDE:
 
 ```
 Detecte a estrutura do meu projeto
@@ -120,12 +120,12 @@ O MCP deve responder com informações sobre:
 
 ## Troubleshooting
 
-### ❌ MCP não aparece no Cursor
+### ❌ MCP não aparece na IDE
 
 **Solução:**
-1. Verifique se o arquivo `~/.cursor/mcp.json` está correto
+1. Verifique se o arquivo `~/.config/mcp-lab-agent/mcp.json` está correto
 2. Verifique se o caminho para `dist/index.js` está correto
-3. Reinicie o Cursor **completamente** (feche todas as janelas)
+3. Reinicie a IDE **completamente** (feche todas as janelas)
 4. Verifique os logs: Help → Toggle Developer Tools → Console
 
 ### ❌ Erro: "command not found: node"
@@ -165,7 +165,7 @@ O MCP deve responder com informações sobre:
    cd /Users/wesleyluiz/Desktop/mcp-lab-agent
    ./test-server.sh
    ```
-2. Verifique se há erros no console do Cursor
+2. Verifique se há erros no console da IDE
 3. Tente usar um projeto diferente (com testes)
 
 ## Configuração de API Keys (Opcional)
@@ -198,8 +198,8 @@ OPENAI_API_KEY=sk-...
 
 ## Localizações Importantes
 
-- **Configuração do MCP:** `~/.cursor/mcp.json`
-- **Logs do Cursor:** Help → Toggle Developer Tools → Console
+- **Configuração do MCP:** `~/.config/mcp-lab-agent/mcp.json`
+- **Logs da IDE:** Help → Toggle Developer Tools → Console
 - **Build do MCP:** `/Users/wesleyluiz/Desktop/mcp-lab-agent/dist/index.js`
 - **Código fonte:** `/Users/wesleyluiz/Desktop/mcp-lab-agent/src/index.js`
 
@@ -209,7 +209,7 @@ Se encontrar problemas:
 
 1. Execute o script de teste: `./test-server.sh`
 2. Verifique o `CHECKLIST.md` para ver se tudo está OK
-3. Veja os logs do Cursor (Developer Tools)
+3. Veja os logs da IDE (Developer Tools)
 4. Abra uma issue no GitHub: https://github.com/Wesley-Gomes93/mcp-lab-agent
 
 ## Próximos Passos

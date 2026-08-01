@@ -16,7 +16,7 @@ Bot Slack que analisa projetos e gera testes via **mcp-lab-agent**.
 npx mcp-lab-agent slack-bot
 ```
 
-Não precisa baixar o repo — o comando instala e executa o bot. Configure `~/.cursor/mcp.json` (ver seção abaixo).
+Não precisa baixar o repo — o comando instala e executa o bot. Configure `~/.config/mcp-lab-agent/mcp.json` (ver seção abaixo).
 
 ## Configuração
 
@@ -63,7 +63,7 @@ Seguindo [Creating an app from app settings](https://docs.slack.dev/app-manageme
 
 ### 6. Configurar credenciais localmente
 
-**Socket Mode** — em `~/.cursor/mcp.json` ou `.env`:
+**Socket Mode** — em `~/.config/mcp-lab-agent/mcp.json` ou `.env`:
 
 ```json
 {

@@ -1,34 +1,34 @@
 # 🧪 Teste o mcp-lab-agent Comigo!
 
-Olá! Estou desenvolvendo um assistente de IA para testes que funciona dentro do Cursor. Gostaria da sua ajuda para testar!
+Olá! Estou desenvolvendo um assistente de IA para testes que funciona dentro da IDE. Gostaria da sua ajuda para testar!
 
 ## 🎯 O que é?
 
-Um MCP (Model Context Protocol) server que adiciona superpoderes de QA ao Cursor:
+Um MCP (Model Context Protocol) server que adiciona superpoderes de QA à IDE:
 - Detecta automaticamente frameworks de teste
 - Gera testes com IA
 - Executa e analisa testes
 - Sugere correções automáticas
 - Cria bug reports
 
-**Você só conversa com o Cursor normalmente, ele faz o resto!**
+**Você só conversa com a IDE normalmente, ele faz o resto!**
 
 ---
 
 ## ⚡ Como Instalar (2 minutos)
 
-### 1. Edite o arquivo de configuração do Cursor
+### 1. Edite o arquivo de configuração da IDE
 
 **No Mac/Linux:**
 ```bash
-mkdir -p ~/.cursor
-nano ~/.cursor/mcp.json
+mkdir -p ~/.config/mcp-lab-agent
+nano ~/.config/mcp-lab-agent/mcp.json
 ```
 
 **No Windows:**
 ```powershell
-mkdir $env:USERPROFILE\.cursor -Force
-notepad $env:USERPROFILE\.cursor\mcp.json
+mkdir $env:USERPROFILE\.config\mcp-lab-agent -Force
+notepad $env:USERPROFILE\.config\mcp-lab-agent\mcp.json
 ```
 
 ### 2. Cole esta configuração
@@ -45,16 +45,16 @@ notepad $env:USERPROFILE\.cursor\mcp.json
 }
 ```
 
-### 3. Salve e reinicie o Cursor
+### 3. Salve e reinicie a IDE
 
-**Importante:** Feche completamente o Cursor e abra novamente.
+**Importante:** Feche completamente a IDE e abra novamente.
 
 ---
 
 ## ✅ Teste se Funcionou
 
-1. Abra qualquer projeto no Cursor (pode ser um projeto com testes ou sem)
-2. No chat do Cursor, digite:
+1. Abra qualquer projeto na IDE (pode ser um projeto com testes ou sem)
+2. No chat da IDE, digite:
 
 ```
 Detecte a estrutura do meu projeto
@@ -160,14 +160,14 @@ Por favor, me diga:
 
 ### "MCP não aparece"
 
-1. Certifique-se de que reiniciou o Cursor **completamente**
-2. Verifique se o arquivo `~/.cursor/mcp.json` está correto
+1. Certifique-se de que reiniciou a IDE **completamente**
+2. Verifique se o arquivo `~/.config/mcp-lab-agent/mcp.json` está correto
 3. Verifique se tem Node.js 18+ instalado: `node --version`
 
 ### "Cannot find module"
 
 1. Tente executar manualmente: `npx -y mcp-lab-agent`
-2. Se funcionar, o problema é na configuração do Cursor
+2. Se funcionar, o problema é na configuração da IDE
 3. Verifique os logs: Help → Toggle Developer Tools → Console
 
 ### "Não entende meus comandos"
@@ -181,7 +181,7 @@ Tente ser mais específico:
 ## 📸 Screenshots (opcional)
 
 Se possível, tire screenshots de:
-1. Ferramentas disponíveis no Cursor (ícone 🔧)
+1. Ferramentas disponíveis na IDE (ícone 🔧)
 2. Resultado da detecção do projeto
 3. Qualquer erro que aparecer
 

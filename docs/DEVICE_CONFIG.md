@@ -18,7 +18,7 @@ npx mcp-lab-agent run specs/login.spec.js --device iPhone_15
 npx mcp-lab-agent run specs/login.spec.js --no-auto-fix
 ```
 
-**Via Cursor/Chat:** *"Roda o teste specs/login.spec.js"* — o agente usa `run_tests` com device e auto-fix.
+**Via IDE/Chat:** *"Roda o teste specs/login.spec.js"* — o agente usa `run_tests` com device e auto-fix.
 
 ## Fontes (ordem de prioridade)
 
@@ -43,7 +43,7 @@ Arquivo na raiz do projeto:
     "platformName": "iOS"
   },
   "mcp": {
-    "description": "Para Cursor: adicione ao ~/.cursor/mcp.json",
+    "description": "Para a IDE: adicione ao ~/.config/mcp-lab-agent/mcp.json",
     "command": "npx",
     "args": ["-y", "mcp-lab-agent@latest"],
     "cwd": "${workspaceFolder}"

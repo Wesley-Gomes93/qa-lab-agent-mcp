@@ -1,25 +1,25 @@
-# 📖 Como Usar o mcp-lab-agent no Cursor
+# 📖 Como Usar o mcp-lab-agent na IDE
 
 ## 🎯 O que é isso?
 
-Um assistente de IA para testes que funciona **dentro do Cursor**. Ele:
+Um assistente de IA para testes que funciona **dentro da IDE**. Ele:
 - ✅ Detecta automaticamente seus frameworks de teste
 - ✅ Gera testes com IA
 - ✅ Executa e analisa testes
 - ✅ Sugere correções para falhas
 - ✅ Cria bug reports automáticos
 
-**Você só conversa normalmente com o Cursor, e ele faz o resto!**
+**Você só conversa normalmente com a IDE, e ele faz o resto!**
 
 ---
 
 ## ⚡ Instalação (2 minutos)
 
-### Passo 1: Edite o arquivo de configuração do Cursor
+### Passo 1: Edite o arquivo de configuração da IDE
 
 ```bash
-mkdir -p ~/.cursor
-nano ~/.cursor/mcp.json
+mkdir -p ~/.config/mcp-lab-agent
+nano ~/.config/mcp-lab-agent/mcp.json
 ```
 
 ### Passo 2: Cole esta configuração
@@ -41,9 +41,9 @@ nano ~/.cursor/mcp.json
 - No nano: pressione `Ctrl+O`, depois `Enter`, depois `Ctrl+X`
 - No vim: digite `:wq` e pressione `Enter`
 
-### Passo 4: Reinicie o Cursor
+### Passo 4: Reinicie a IDE
 
-**Feche completamente** o Cursor e abra novamente.
+**Feche completamente** a IDE e abra novamente.
 
 ---
 
@@ -51,7 +51,7 @@ nano ~/.cursor/mcp.json
 
 ### Não precisa decorar comandos!
 
-Apenas converse naturalmente com o Cursor. Ele entende o que você quer e usa as ferramentas certas automaticamente.
+Apenas converse naturalmente com a IDE. Ele entende o que você quer e usa as ferramentas certas automaticamente.
 
 ### Exemplos do que você pode pedir:
 
@@ -104,12 +104,12 @@ Apenas converse naturalmente com o Cursor. Ele entende o que você quer e usa as
 
 ## 🎨 Exemplo Real de Uso
 
-Imagine que você abriu um projeto no Cursor:
+Imagine que você abriu um projeto na IDE:
 
 ```
 👤 Você: "Detecte a estrutura do meu projeto"
 
-🤖 Cursor: Detectei:
+🤖 IDE: Detectei:
 - Framework: Cypress 13.x
 - Testes em: cypress/e2e/
 - 15 arquivos de teste encontrados
@@ -118,22 +118,22 @@ Imagine que você abriu um projeto no Cursor:
 
 👤 Você: "Gere um teste E2E para o fluxo de checkout"
 
-🤖 Cursor: [gera o teste automaticamente]
+🤖 IDE: [gera o teste automaticamente]
 Criei o arquivo: cypress/e2e/checkout.cy.js
 
 👤 Você: "Rode esse teste"
 
-🤖 Cursor: [executa o teste]
+🤖 IDE: [executa o teste]
 ✅ 1 teste passou
 ⏱️ Tempo: 2.3s
 
 👤 Você: "Agora gere um teste para o carrinho de compras"
 
-🤖 Cursor: [gera outro teste]
+🤖 IDE: [gera outro teste]
 ...
 ```
 
-**Você só conversa, o Cursor faz tudo!**
+**Você só conversa, a IDE faz tudo!**
 
 ---
 
@@ -177,13 +177,13 @@ OPENAI_API_KEY=sk-sua_chave_aqui
 
 ### Teste rápido:
 
-1. Abra qualquer projeto no Cursor
+1. Abra qualquer projeto na IDE
 2. No chat, digite: **"Detecte a estrutura do meu projeto"**
 3. Se responder com informações sobre frameworks e testes, **está funcionando!**
 
 ### Verificar ferramentas disponíveis:
 
-1. Abra o chat do Cursor (Cmd+L ou Ctrl+L)
+1. Abra o chat da IDE (Cmd+L ou Ctrl+L)
 2. Clique no ícone de ferramentas (🔧) ou procure por "Tools"
 3. Você deve ver as ferramentas do `qa-lab-agent`:
    - `detect_project`
@@ -195,11 +195,11 @@ OPENAI_API_KEY=sk-sua_chave_aqui
 
 ## 🚨 Problemas Comuns
 
-### "MCP não aparece no Cursor"
+### "MCP não aparece na IDE"
 
 **Solução:**
-1. Verifique se o arquivo `~/.cursor/mcp.json` está correto
-2. **Reinicie o Cursor completamente** (feche todas as janelas)
+1. Verifique se o arquivo `~/.config/mcp-lab-agent/mcp.json` está correto
+2. **Reinicie a IDE completamente** (feche todas as janelas)
 3. Verifique se tem Node.js instalado: `node --version` (precisa ser 18+)
 
 ### "Cannot find module" ou "command not found"
@@ -207,12 +207,12 @@ OPENAI_API_KEY=sk-sua_chave_aqui
 **Solução:**
 1. Certifique-se de que tem Node.js 18 ou superior instalado
 2. Tente executar manualmente: `npx -y mcp-lab-agent`
-3. Se funcionar, o problema é na configuração do Cursor
+3. Se funcionar, o problema é na configuração da IDE
 
 ### "As ferramentas não aparecem"
 
 **Solução:**
-1. Abra o Developer Tools do Cursor: Help → Toggle Developer Tools
+1. Abra o Developer Tools da IDE: Help → Toggle Developer Tools
 2. Vá na aba Console
 3. Procure por erros relacionados a "mcp" ou "qa-lab"
 4. Se ver erros, copie e abra uma issue no GitHub
@@ -224,7 +224,7 @@ OPENAI_API_KEY=sk-sua_chave_aqui
 3. Inclua:
    - Sistema operacional
    - Versão do Node.js (`node --version`)
-   - Conteúdo do `~/.cursor/mcp.json`
+   - Conteúdo do `~/.config/mcp-lab-agent/mcp.json`
    - Erros do Developer Tools (se houver)
 
 ---
@@ -302,7 +302,7 @@ Depois de rodar testes:
 - **README.md** - Visão geral completa
 - **QUICKSTART.md** - Guia rápido
 - **INSTALL.md** - Opções de instalação
-- **CURSOR_SETUP.md** - Configuração detalhada
+- **MCP_SETUP.md** - Configuração detalhada
 - **TROUBLESHOOTING.md** - Solução de problemas
 - **FRAMEWORKS.md** - Frameworks suportados
 

@@ -1,6 +1,6 @@
 # 🚀 Como Instalar e Usar o mcp-lab-agent
 
-Você tem **3 opções** para usar o MCP no Cursor:
+Você tem **3 opções** para usar o MCP na IDE:
 
 ---
 
@@ -8,9 +8,9 @@ Você tem **3 opções** para usar o MCP no Cursor:
 
 Esta opção **não precisa de npm link** e já está funcionando!
 
-### Configure no Cursor:
+### Configure na IDE:
 
-Edite `~/.cursor/mcp.json`:
+Edite `~/.config/mcp-lab-agent/mcp.json`:
 
 ```json
 {
@@ -24,7 +24,7 @@ Edite `~/.cursor/mcp.json`:
 }
 ```
 
-**Pronto!** Reinicie o Cursor e comece a usar.
+**Pronto!** Reinicie a IDE e comece a usar.
 
 ---
 
@@ -37,7 +37,7 @@ cd /Users/wesleyluiz/Desktop/mcp-lab-agent
 sudo npm link
 ```
 
-Depois configure no Cursor:
+Depois configure na IDE:
 
 ```json
 {
@@ -67,7 +67,7 @@ npm run build
 npm publish
 ```
 
-### 3.2 Configurar no Cursor:
+### 3.2 Configurar na IDE:
 
 ```json
 {
@@ -103,11 +103,11 @@ npm publish
 
 ## 📝 Passos para começar (Opção 1 - Recomendada)
 
-### 1. Crie/edite o arquivo de configuração do Cursor:
+### 1. Crie/edite o arquivo de configuração da IDE:
 
 ```bash
-mkdir -p ~/.cursor
-nano ~/.cursor/mcp.json
+mkdir -p ~/.config/mcp-lab-agent
+nano ~/.config/mcp-lab-agent/mcp.json
 ```
 
 ### 2. Cole esta configuração:
@@ -127,11 +127,11 @@ nano ~/.cursor/mcp.json
 ### 3. Salve e saia:
 - No nano: `Ctrl+O`, `Enter`, `Ctrl+X`
 
-### 4. Reinicie o Cursor
+### 4. Reinicie a IDE
 
 ### 5. Teste em qualquer projeto:
 
-Abra um projeto no Cursor e digite no chat:
+Abra um projeto na IDE e digite no chat:
 
 ```
 Detecte a estrutura do meu projeto
@@ -141,7 +141,7 @@ Detecte a estrutura do meu projeto
 
 ## ✅ Verificar se está funcionando
 
-1. Abra o Cursor
+1. Abra a IDE
 2. Abra o chat (Cmd+L)
 3. Clique no ícone de ferramentas (🔧)
 4. Procure por "qa-lab"
@@ -158,4 +158,4 @@ cd /Users/wesleyluiz/Desktop/mcp-lab-agent
 ./test-server.sh
 ```
 
-Veja mais detalhes em `CURSOR_SETUP.md`
+Veja mais detalhes em `MCP_SETUP.md`

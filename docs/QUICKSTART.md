@@ -2,13 +2,13 @@
 
 ## Para Usuários (Instalar e Usar)
 
-### 1️⃣ Instale no Cursor (2 minutos)
+### 1️⃣ Instale na IDE (2 minutos)
 
-**Passo 1:** Edite ou crie `~/.cursor/mcp.json`
+**Passo 1:** Edite ou crie `~/.config/mcp-lab-agent/mcp.json`
 
 ```bash
-mkdir -p ~/.cursor
-nano ~/.cursor/mcp.json
+mkdir -p ~/.config/mcp-lab-agent
+nano ~/.config/mcp-lab-agent/mcp.json
 ```
 
 **Passo 2:** Cole esta configuração:
@@ -25,11 +25,11 @@ nano ~/.cursor/mcp.json
 }
 ```
 
-**Passo 3:** Salve (Ctrl+O, Enter, Ctrl+X) e **reinicie o Cursor**
+**Passo 3:** Salve (Ctrl+O, Enter, Ctrl+X) e **reinicie a IDE**
 
 ### 2️⃣ Use Normalmente
 
-Abra qualquer projeto no Cursor e converse naturalmente:
+Abra qualquer projeto na IDE e converse naturalmente:
 
 ```
 "Detecte a estrutura do meu projeto"
@@ -38,7 +38,7 @@ Abra qualquer projeto no Cursor e converse naturalmente:
 "Analise as falhas"
 ```
 
-**Pronto!** O Cursor usa as ferramentas automaticamente. Você não precisa fazer nada especial.
+**Pronto!** A IDE usa as ferramentas automaticamente. Você não precisa fazer nada especial.
 
 ---
 
@@ -53,9 +53,9 @@ npm install
 npm run build
 ```
 
-### 2️⃣ Configure no Cursor (desenvolvimento local)
+### 2️⃣ Configure na IDE (desenvolvimento local)
 
-Edite `~/.cursor/mcp.json`:
+Edite `~/.config/mcp-lab-agent/mcp.json`:
 
 ```json
 {
@@ -90,7 +90,7 @@ npm run build
 
 ### Como sei se está funcionando?
 
-1. Abra o Cursor
+1. Abra a IDE
 2. Abra qualquer projeto
 3. No chat, digite: "Detecte a estrutura do meu projeto"
 4. Se responder com informações sobre frameworks e testes, está funcionando!
@@ -122,7 +122,7 @@ OPENAI_API_KEY=sk-...
 - Gemini: https://aistudio.google.com/apikey
 - OpenAI: https://platform.openai.com/api-keys
 
-### O que posso pedir ao Cursor?
+### O que posso pedir à IDE?
 
 Converse naturalmente! Exemplos:
 
@@ -154,12 +154,12 @@ Converse naturalmente! Exemplos:
 
 **Checklist rápido:**
 
-1. ✅ Reiniciou o Cursor completamente?
-2. ✅ O arquivo `~/.cursor/mcp.json` está correto?
+1. ✅ Reiniciou a IDE completamente?
+2. ✅ O arquivo `~/.config/mcp-lab-agent/mcp.json` está correto?
 3. ✅ Está usando Node.js 18 ou superior? (`node --version`)
 
 **Verificar logs:**
-1. Abra o Cursor
+1. Abra a IDE
 2. Help → Toggle Developer Tools → Console
 3. Procure por erros relacionados a "mcp" ou "qa-lab"
 
@@ -190,7 +190,7 @@ Após instalar:
 
 - `README.md` - Visão geral e features
 - `INSTALL.md` - Opções de instalação detalhadas
-- `CURSOR_SETUP.md` - Configuração passo a passo do Cursor
+- `MCP_SETUP.md` - Configuração passo a passo da IDE
 - `TROUBLESHOOTING.md` - Solução de problemas
 - `FRAMEWORKS.md` - Frameworks suportados
 

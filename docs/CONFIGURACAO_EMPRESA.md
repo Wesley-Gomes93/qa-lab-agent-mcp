@@ -1,6 +1,6 @@
 # 🔧 Configuração para Empresa — mcp-lab-agent + Slack
 
-Guia de como configurar o mcp-lab-agent para uso corporativo: **Cursor (MCP)** e **Slack**.
+Guia de como configurar o mcp-lab-agent para uso corporativo: **cliente MCP** e **Slack**.
 
 ---
 
@@ -8,14 +8,14 @@ Guia de como configurar o mcp-lab-agent para uso corporativo: **Cursor (MCP)** e
 
 | Uso | Onde | Arquivo |
 |-----|------|---------|
-| **Cursor (chat)** | Máquina do dev | `~/.cursor/mcp.json` |
+| **chat da IDE** | Máquina do dev | `~/.config/mcp-lab-agent/mcp.json` |
 | **Slack Bot** | Servidor/projeto | `qa-lab-agent.config.json` + `.env` |
 
 ---
 
-## 2. Passo 1: Cursor (MCP) — cada dev
+## 2. Passo 1: cliente MCP — cada dev
 
-Cada desenvolvedor adiciona no **`~/.cursor/mcp.json`**:
+Cada desenvolvedor adiciona no **`~/.config/mcp-lab-agent/mcp.json`**:
 
 ```json
 {
@@ -110,7 +110,7 @@ REDIS_URL=redis://localhost:6379
 ## 4. Resumo: o que fica onde
 
 ```
-~/.cursor/mcp.json          → cada dev (Cursor)
+~/.config/mcp-lab-agent/mcp.json          → cada dev (IDE)
 qa-lab-agent.config.json    → projeto/repo (config estrutural)
 .env                        → servidor (secrets, não versionar)
 .env.example                → template versionado
@@ -125,9 +125,9 @@ qa-lab-agent.config.json    → projeto/repo (config estrutural)
 - [ ] mcp-lab-agent publicado no npm (`mcp-lab-agent@latest`)
 - [ ] Ou usar path local: `"command": "node", "args": ["/caminho/qa-lab-agent-mcp/dist/index.js"]`
 
-**Config Cursor (por dev):**
+**Config IDE (por dev):**
 
-- [ ] `~/.cursor/mcp.json` com entrada `qa-lab-agent`
+- [ ] `~/.config/mcp-lab-agent/mcp.json` com entrada `qa-lab-agent`
 - [ ] `cwd` apontando para `${workspaceFolder}`
 
 **Config Slack (servidor):**
@@ -142,11 +142,11 @@ qa-lab-agent.config.json    → projeto/repo (config estrutural)
 
 ## 6. Referência entre configs
 
-O `mcp.json` do Cursor e o `qa-lab-agent.config.json` do Slack são independentes:
+O `mcp.json` da IDE e o `qa-lab-agent.config.json` do Slack são independentes:
 
 | Config | Usado por | Conteúdo |
 |--------|-----------|----------|
-| `~/.cursor/mcp.json` | Cursor | Como iniciar o MCP (command, args, cwd) |
+| `~/.config/mcp-lab-agent/mcp.json` | IDE | Como iniciar o MCP (command, args, cwd) |
 | `qa-lab-agent.config.json` | Slack Bot | Canais, repos, comando do mcp-lab-agent |
 
-O Slack Bot usa `qa-lab-agent.config.json` para saber qual repo usar em cada canal. O Cursor usa `mcp.json` para saber como rodar o agente no workspace atual.
+O Slack Bot usa `qa-lab-agent.config.json` para saber qual repo usar em cada canal. A IDE usa `mcp.json` para saber como rodar o agente no workspace atual.

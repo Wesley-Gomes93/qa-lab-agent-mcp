@@ -28,13 +28,13 @@ Sistema de QA autônomo que reduz tempo de debug de testes, elimina flaky e mant
 - Testes que se autocorrigem e aprendem com cada fix
 - Slack bot para QA no fluxo da conversa
 - 11+ frameworks: Cypress, Playwright, Appium, Jest, Detox
-- Integra com Cursor IDE e Slack
+- Integra com IDE e Slack
 
 ---
 
 ## TL;DR para recrutadores
 
-QA autônomo que explica *por que* os testes falharam em linguagem clara e aplica correções automaticamente. Testes que se autocorrigem e aprendem a cada fix. Integra com IDE (Cursor) e Slack. Feito para QA Engineers, SDETs e roles de Automação/IA.
+QA autônomo que explica *por que* os testes falharam em linguagem clara e aplica correções automaticamente. Testes que se autocorrigem e aprendem a cada fix. Integra com IDE e Slack. Feito para QA Engineers, SDETs e roles de Automação/IA.
 
 ---
 

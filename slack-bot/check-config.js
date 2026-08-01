@@ -33,7 +33,7 @@ function expandTilde(filePath) {
 function getMcpJsonPath() {
   const envPath = process.env.QA_LAB_MCP_CONFIG;
   if (envPath) return expandTilde(envPath);
-  return path.join(os.homedir(), ".cursor", "mcp.json");
+  return path.join(os.homedir(), ".config", "mcp-lab-agent", "mcp.json");
 }
 const mcpPath = getMcpJsonPath();
 

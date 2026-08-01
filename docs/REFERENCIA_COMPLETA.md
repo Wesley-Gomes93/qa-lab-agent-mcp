@@ -1,6 +1,6 @@
 # 📋 Referência Completa — mcp-lab-agent
 
-Este documento lista **todos** os comandos do chat Cursor, **todos** os comandos do terminal e um **resumo do projeto** após sua expansão.
+Este documento lista **todos** os comandos do chat IDE, **todos** os comandos do terminal e um **resumo do projeto** após sua expansão.
 
 ---
 
@@ -26,9 +26,9 @@ O **mcp-lab-agent** é um **agente autônomo de QA que aprende com os próprios 
 
 ---
 
-## 💬 Comandos no Chat do Cursor
+## 💬 Comandos no Chat da IDE
 
-Você pode falar em linguagem natural. O Cursor usa as ferramentas automaticamente. Abaixo, **todas** as 21 ferramentas e exemplos de frases que as acionam.
+Você pode falar em linguagem natural. A IDE usa as ferramentas automaticamente. Abaixo, **todas** as 21 ferramentas e exemplos de frases que as acionam.
 
 ### 1. read_file
 Lê qualquer arquivo do projeto.
@@ -355,7 +355,7 @@ Instala dependências (npm/yarn/pnpm).
 
 ## 🖥️ Comandos no Terminal
 
-Estes comandos rodam **fora** do Cursor, no terminal. O mcp-lab-agent precisa estar no PATH (global ou via npx).
+Estes comandos rodam **fora** da IDE, no terminal. O mcp-lab-agent precisa estar no PATH (global ou via npx).
 
 ### 1. Iniciar servidor MCP (padrão)
 
@@ -365,7 +365,7 @@ mcp-lab-agent
 npx mcp-lab-agent
 ```
 
-Sem argumentos, inicia o servidor MCP. Usado pelo Cursor quando você configura o MCP.
+Sem argumentos, inicia o servidor MCP. Usado pela IDE quando você configura o MCP.
 
 ---
 
