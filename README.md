@@ -3,6 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/mcp-lab-agent.svg)](https://www.npmjs.com/package/mcp-lab-agent)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/Wesley-Gomes93/qa-lab-agent-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Wesley-Gomes93/qa-lab-agent-mcp/actions/workflows/ci.yml)
 
 **PT-BR** | [English](#english)
 
@@ -12,7 +13,7 @@
 
 **Sistema de QA autônomo com IA.** Reduz tempo de debug de testes, elimina flaky e mantém seletores estáveis — com um sistema de aprendizado que melhora a cada correção.
 
-> **TL;DR para recrutadores:** QA autônomo que explica *por que* os testes falharam em linguagem clara e aplica correções automaticamente. Testes que se autocorrigem e aprendem a cada fix. Integra com IDE (Cursor) e Slack. Feito para QA Engineers, SDETs e roles de Automação/IA.
+> **TL;DR para recrutadores:** QA autônomo que explica *por que* os testes falharam em linguagem clara e aplica correções automaticamente. Testes que se autocorrigem e aprendem a cada fix. Integra com IDE e Slack. Feito para QA Engineers, SDETs e roles de Automação/IA.
 
 ### Por que isso importa
 
@@ -43,7 +44,7 @@ npx mcp-lab-agent auto "login flow" --max-retries 5
 
 ### Como funciona
 
-**🤖 Agente no IDE (Cursor, Cline, Windsurf)** — Pergunte no chat: *"Gere teste para login"*, *"Por que o teste falhou?"*, *"Roda o teste X"*. O agente detecta o projeto, executa testes, analisa falhas, aplica correções e aprende.
+**🤖 Agente no IDE (Cline, Windsurf e outras IDEs com MCP)** — Pergunte no chat: *"Gere teste para login"*, *"Por que o teste falhou?"*, *"Roda o teste X"*. O agente detecta o projeto, executa testes, analisa falhas, aplica correções e aprende.
 
 **💬 Slack Bot** — Mencione o bot em qualquer canal — ele executa testes e posta o relatório. Funciona em ambiente corporativo (Socket Mode, sem ngrok). QA no fluxo da conversa.
 
@@ -73,7 +74,7 @@ npx mcp-lab-agent auto "login flow" --max-retries 5
 
 **AI-powered autonomous QA system.** Reduces test debugging time, eliminates flaky tests, and keeps selectors stable — with a learning system that gets smarter with every fix.
 
-> **TL;DR for recruiters:** Autonomous QA that explains *why* tests fail in plain language and applies fixes automatically. Self-healing tests that learn from each fix. Integrates with IDE (Cursor) and Slack. Built for QA Engineers, SDETs, and AI/Automation roles.
+> **TL;DR for recruiters:** Autonomous QA that explains *why* tests fail in plain language and applies fixes automatically. Self-healing tests that learn from each fix. Integrates with IDE and Slack. Built for QA Engineers, SDETs, and AI/Automation roles.
 
 ### Why this matters
 
@@ -104,7 +105,7 @@ npx mcp-lab-agent auto "login flow" --max-retries 5
 
 ### How it works
 
-**🤖 IDE Agent (Cursor, Cline, Windsurf)** — Ask in chat: *"Generate a test for login"*, *"Why did the test fail?"*, *"Run test X"*. The agent detects your project, runs tests, analyzes failures, applies fixes, and learns.
+**🤖 IDE Agent (Cline, Windsurf e outras IDEs com MCP)** — Ask in chat: *"Generate a test for login"*, *"Why did the test fail?"*, *"Run test X"*. The agent detects your project, runs tests, analyzes failures, applies fixes, and learns.
 
 **💬 Slack Bot** — Mention the bot in any channel — it runs tests and posts the report. Works in corporate environments (Socket Mode, no ngrok). QA in the flow of conversation.
 
@@ -169,9 +170,9 @@ npx mcp-lab-agent stats
 npx mcp-lab-agent report --full
 ```
 
-### IDE — Cursor, Cline, Windsurf
+### IDE — Cline, Windsurf e outras IDEs com MCP
 
-Adicione ao `~/.cursor/mcp.json`:
+Adicione ao `~/.config/mcp-lab-agent/mcp.json`:
 
 ```json
 {
@@ -195,7 +196,7 @@ Use no chat: *"Detecte a estrutura do meu projeto"*, *"Gere teste para login"*, 
 npx mcp-lab-agent slack-bot
 ```
 
-Funciona em ambiente corporativo (Socket Mode, sem URL pública). Configure `botToken` e `appToken` em `~/.cursor/mcp.json`. Onde obter: [slack-bot/CREDENTIALS.md](slack-bot/CREDENTIALS.md). Detalhes: [slack-bot/README.md](slack-bot/README.md).
+Funciona em ambiente corporativo (Socket Mode, sem URL pública). Configure `botToken` e `appToken` em `~/.config/mcp-lab-agent/mcp.json`. Onde obter: [slack-bot/CREDENTIALS.md](slack-bot/CREDENTIALS.md). Detalhes: [slack-bot/README.md](slack-bot/README.md).
 
 ### Learning Hub — Inteligência centralizada
 
@@ -220,7 +221,7 @@ O agente envia learnings automaticamente. O Hub agrega padrões e fornece recome
 flowchart TB
     subgraph Input["Entrada"]
         CLI[CLI: auto, stats, report]
-        IDE[IDE: Cursor, Cline, Windsurf]
+        IDE[IDE, Cline, Windsurf]
         Slack[Slack Bot]
     end
 
@@ -376,17 +377,17 @@ npm install playwright
 ## Documentação
 
 - [CHANGELOG.md](CHANGELOG.md) — Histórico de versões
+- [docs/CI_AND_REPORTS.md](docs/CI_AND_REPORTS.md) — Relatórios JSON, baseline e CI gate
 - [slack-bot/README.md](slack-bot/README.md) — Slack Bot
 - [learning-hub/README.md](learning-hub/README.md) — Learning Hub
-- [docs/PORTFOLIO_COPY_PT-BR.md](docs/PORTFOLIO_COPY_PT-BR.md) — Copy em PT-BR para portfólio (Vercel)
 
 ---
 
 ## Desenvolvimento
 
 ```bash
-git clone https://github.com/Wesley-Gomes93/mcp-lab-agent
-cd mcp-lab-agent
+git clone https://github.com/Wesley-Gomes93/qa-lab-agent-mcp.git
+cd qa-lab-agent-mcp
 npm install
 npm run build
 npm test
@@ -398,6 +399,18 @@ npm test
 | `npm test` | Testes (Vitest) |
 | `npm run test:coverage` | Cobertura |
 | `npm run dev` | Build em watch |
+| `npm run lint` | ESLint (`src/`) |
+
+### CI / relatório JSON (gate no pipeline)
+
+```bash
+mcp-lab-agent run --json-report
+mcp-lab-agent run --json-report --save-baseline .qa-lab-reports/baseline.json
+mcp-lab-agent run --json-report --compare-baseline .qa-lab-reports/baseline.json
+mcp-lab-agent audit --baseline .qa-lab-reports/baseline.json
+```
+
+Detalhes: [docs/CI_AND_REPORTS.md](docs/CI_AND_REPORTS.md).
 
 ---
 

@@ -23,7 +23,7 @@ if [ $? -eq 0 ]; then
     echo "✅ Instalação global concluída!"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo "Agora você pode usar no Cursor com esta configuração:"
+    echo "Agora você pode usar na IDE com esta configuração:"
     echo ""
     echo '{
   "mcpServers": {
@@ -43,7 +43,7 @@ else
     echo ""
     echo "Alternativa: Use o build local sem sudo"
     echo ""
-    echo "Configure no ~/.cursor/mcp.json:"
+    echo "Configure no ~/.config/mcp-lab-agent/mcp.json:"
     echo ""
     echo '{
   "mcpServers": {

@@ -218,7 +218,7 @@ Siga o guia completo em `SLACK_SETUP.md`:
 2. Adicionar scopes necessários
 3. Ativar Socket Mode
 4. Copiar tokens
-5. Configurar `~/.cursor/mcp.json`
+5. Configurar `~/.config/mcp-lab-agent/mcp.json`
 6. Iniciar: `mcp-lab-agent slack-bot`
 
 ---

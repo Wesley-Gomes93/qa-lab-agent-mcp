@@ -142,3 +142,44 @@ export function detectFlakyPatterns(runOutput) {
   const confidence = detected.length > 0 ? Math.min(0.5 + detected.length * 0.2, 0.95) : 0;
   return { isLikelyFlaky: confidence > 0.5, confidence, patterns: detected };
 }
+
+/**
+ * Classifica flaky a partir de N execuções do mesmo spec.
+ * Regra: se passar e falhar no mesmo conjunto (ex.: 2/3) → flaky.
+ */
+export function classifyFlakyFromRuns(runs, { minRuns = 3 } = {}) {
+  const list = Array.isArray(runs) ? runs : [];
+  const total = list.length;
+  const passed = list.filter((r) => r && r.passed).length;
+  const failed = total - passed;
+  const failureRate = total > 0 ? Math.round((failed / total) * 100) : 0;
+  const isFlaky = total >= minRuns && passed > 0 && failed > 0;
+  const isAlwaysFailing = total >= minRuns && passed === 0 && failed > 0;
+  const isStable = total >= minRuns && failed === 0;
+  let verdict = "insufficient_runs";
+  if (total >= minRuns) {
+    if (isFlaky) verdict = "flaky";
+    else if (isAlwaysFailing) verdict = "always_failing";
+    else if (isStable) verdict = "stable";
+  }
+  const patternHints = [];
+  for (const r of list) {
+    if (!r?.passed && r?.runOutput) {
+      const d = detectFlakyPatterns(r.runOutput);
+      for (const p of d.patterns) {
+        if (!patternHints.find((x) => x.pattern === p.pattern)) patternHints.push(p);
+      }
+    }
+  }
+  return {
+    verdict,
+    isFlaky,
+    isAlwaysFailing,
+    isStable,
+    total,
+    passed,
+    failed,
+    failureRate,
+    patternHints,
+  };
+}

@@ -15,10 +15,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveLLMProvider, TASK_COMPLEXITY } from "./core/llm-router.js";
 import { loadProjectMemory, saveProjectMemory, getMemoryStats, analyzeTestStability } from "./core/memory.js";
-import { detectFlakyPatterns, detectMobileMappingInvisible, formatLearnedMessageForUser, inferFailurePattern, MOBILE_MAPPING_LESSON, MOBILE_SELECTOR_HIERARCHY, oneLineFailureSummary, UNIVERSAL_TEST_PRACTICES } from "./core/flaky-detection.js";
+import { classifyFlakyFromRuns, detectFlakyPatterns, detectMobileMappingInvisible, formatLearnedMessageForUser, inferFailurePattern, MOBILE_MAPPING_LESSON, MOBILE_SELECTOR_HIERARCHY, oneLineFailureSummary, UNIVERSAL_TEST_PRACTICES } from "./core/flaky-detection.js";
 import { collectTestFiles, detectDeviceConfig, detectProjectStructure, getFrameworkCwd, inferFrameworkFromFile, isTestFile, matchesFramework, analyzeCodeRisks } from "./core/project-structure.js";
 import { applySelectorFixAndRetry } from "./core/llm-call.js";
 import { parseTestRunResult, recordMetricEvent, extractFailuresFromOutput } from "./core/tool-helpers.js";
+import { buildRunReport, writeRunReportFile, defaultLatestReportPath } from "./core/run-report.js";
 import { handleCLI } from "./cli/commands.js";
 
 const PROJECT_ROOT = process.cwd();
@@ -26,7 +27,7 @@ config({ path: path.join(PROJECT_ROOT, ".env") });
 
 const server = new McpServer({
   name: "mcp-lab-agent",
-  version: "2.1.9",
+  version: "2.3.2",
 });
 
 // ============================================================================
@@ -34,6 +35,7 @@ const server = new McpServer({
 // ============================================================================
 
 const METRICS_FILE = path.join(PROJECT_ROOT, ".qa-lab-metrics.json");
+const FLOWS_CONFIG_FILE = path.join(PROJECT_ROOT, "qa-lab-flows.json");
 
 function appendMetricsEvent(event) {
   recordMetricEvent(event);
@@ -240,9 +242,9 @@ server.registerTool(
 
 const QA_AGENTS = {
   autonomous: { tools: ["qa_auto"], desc: "Modo autônomo: gera, roda, corrige e aprende (loop completo)" },
-  intelligence: { tools: ["qa_full_analysis", "qa_health_check", "qa_suggest_next_test", "qa_predict_flaky", "qa_compare_with_industry"], desc: "Executor + Consultor: análise completa, diagnóstico, sugestões e predições" },
+  intelligence: { tools: ["qa_full_analysis", "qa_health_check", "qa_suggest_next_test", "detect_flaky_tests", "report_flaky_tests", "qa_predict_flaky", "qa_compare_with_industry"], desc: "Executor + Consultor: análise completa, diagnóstico, sugestões e predições" },
   detection: { tools: ["detect_project", "read_project", "list_test_files"], desc: "Detecção de estrutura, frameworks e arquivos" },
-  execution: { tools: ["run_tests", "watch_tests", "get_test_coverage"], desc: "Execução de testes e cobertura" },
+  execution: { tools: ["run_tests", "watch_tests", "get_test_coverage", "detect_flaky_tests"], desc: "Execução de testes e cobertura" },
   generation: { tools: ["generate_tests", "write_test", "create_test_template", "map_mobile_elements"], desc: "Geração de testes com LLM" },
   analysis: { tools: ["analyze_failures", "por_que_falhou", "suggest_fix", "suggest_selector_fix"], desc: "Análise de falhas e sugestões" },
   browser: { tools: ["web_eval_browser"], desc: "Avaliação em browser real (screenshots, network, console)" },
@@ -324,6 +326,7 @@ server.registerTool(
       device: z.string().optional().describe("Device/configuration para mobile. Se vazio, detecta de qa-lab-agent.config.json, wdio.conf ou .detoxrc."),
       explainOnFailure: z.boolean().optional().describe("Se true, quando falhar gera automaticamente: O que aconteceu, Por que falhou, O que fazer, Sugestão de correção. Requer API key."),
       autoFixSelector: z.boolean().optional().describe("Se true e falhar por seletor, aplica correção automaticamente e tenta novamente. Requer spec e API key. Default: true para mobile."),
+      writeJsonReport: z.boolean().optional().describe("Se true, grava relatório JSON em .qa-lab-reports/latest.json (CI / baseline)."),
     }),
     outputSchema: z.object({
       status: z.enum(["passed", "failed", "not_found"]),
@@ -332,7 +335,7 @@ server.registerTool(
       runOutput: z.string().optional(),
     }),
   },
-  async ({ framework, spec, suite, explainOnFailure, device, autoFixSelector }) => {
+  async ({ framework, spec, suite, explainOnFailure, device, autoFixSelector, writeJsonReport }) => {
     const structure = detectProjectStructure();
 
     if (!structure.hasTests) {
@@ -533,19 +536,54 @@ server.registerTool(
       autoFixed: autoFixed || undefined,
     };
 
-    if (!result.passed && explainOnFailure && result.runOutput) {
-      const explainResult = await generateFailureExplanation(result.runOutput, spec || undefined);
-      if (explainResult.ok && explainResult.structuredContent) {
-        const oneLine =
-          explainResult.structuredContent.resumoEmUmaFrase ||
-          oneLineFailureSummary(result.runOutput, selectedFramework, explainResult.structuredContent.oQueAconteceu, explainResult.structuredContent.sugestaoCorrecao);
-        structured.explanation = explainResult.structuredContent.formattedText;
-        structured.resumoEmUmaFrase = oneLine;
-        return {
-          content: [{ type: "text", text: `${baseMsg}\n\n**${oneLine}**\n\n---\n\n${explainResult.structuredContent.formattedText}` }],
-          structuredContent: structured,
-        };
+    if (writeJsonReport) {
+      try {
+        const report = buildRunReport({
+          projectRoot: PROJECT_ROOT,
+          framework: selectedFramework,
+          spec: spec || null,
+          cmd,
+          args,
+          cwd,
+          exitCode: result.exitCode,
+          runOutput: result.runOutput || "",
+          durationMs: (result.durationSeconds || 0) * 1000,
+        });
+        const reportPath = defaultLatestReportPath(PROJECT_ROOT);
+        writeRunReportFile(report, reportPath);
+        structured.reportPath = reportPath;
+      } catch {}
+    }
+
+    // Sempre: resumo em 1 frase quando falha (não depende de API key)
+    if (!result.passed && result.runOutput) {
+      let oneLine = oneLineFailureSummary(result.runOutput, selectedFramework);
+      structured.resumoEmUmaFrase = oneLine;
+
+      if (explainOnFailure) {
+        const explainResult = await generateFailureExplanation(result.runOutput, spec || undefined);
+        if (explainResult.ok && explainResult.structuredContent) {
+          oneLine =
+            explainResult.structuredContent.resumoEmUmaFrase ||
+            oneLineFailureSummary(
+              result.runOutput,
+              selectedFramework,
+              explainResult.structuredContent.oQueAconteceu,
+              explainResult.structuredContent.sugestaoCorrecao
+            );
+          structured.explanation = explainResult.structuredContent.formattedText;
+          structured.resumoEmUmaFrase = oneLine;
+          return {
+            content: [{ type: "text", text: `${baseMsg}\n\n**${oneLine}**\n\n---\n\n${explainResult.structuredContent.formattedText}` }],
+            structuredContent: structured,
+          };
+        }
       }
+
+      return {
+        content: [{ type: "text", text: `${baseMsg}\n\n**${oneLine}**` }],
+        structuredContent: structured,
+      };
     }
 
     return {
@@ -2615,6 +2653,163 @@ server.registerTool(
         industry: industryBenchmarks,
         verdict,
       },
+    };
+  }
+);
+
+server.registerTool(
+  "detect_flaky_tests",
+  {
+    title: "Detectar flaky rodando N vezes",
+    description: "Roda o mesmo spec N vezes (default 3). Se passar e falhar no mesmo conjunto → marca como flaky. Registra execuções na memória local.",
+    inputSchema: z.object({
+      spec: z.string().describe("Caminho do spec a repetir (obrigatório)."),
+      framework: z.enum([
+        "cypress", "playwright", "webdriverio", "jest", "vitest", "mocha",
+        "appium", "detox", "robot", "pytest", "npm"
+      ]).optional(),
+      runs: z.number().optional().describe("Quantas vezes rodar. Default: 3. Máx: 5."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      verdict: z.string(),
+      failureRate: z.number(),
+      passed: z.number(),
+      failed: z.number(),
+      total: z.number(),
+    }),
+  },
+  async ({ spec, framework, runs = 3 }) => {
+    const structure = detectProjectStructure();
+    if (!structure.hasTests) {
+      return {
+        content: [{ type: "text", text: "Nenhum framework de teste detectado." }],
+        structuredContent: { ok: false, verdict: "no_tests", failureRate: 0, passed: 0, failed: 0, total: 0 },
+      };
+    }
+    const n = Math.min(Math.max(Number(runs) || 3, 2), 5);
+    const selectedFramework = framework || structure.testFrameworks[0] || "npm";
+    const cwd = selectedFramework === "playwright"
+      ? (structure.testDirs.includes("playwright") ? path.join(PROJECT_ROOT, "playwright") : PROJECT_ROOT)
+      : PROJECT_ROOT;
+
+    let cmd = "npx";
+    let args = ["vitest", "run", spec];
+    if (selectedFramework === "playwright") args = ["playwright", "test", spec];
+    else if (selectedFramework === "cypress") args = ["cypress", "run", "--spec", spec];
+    else if (selectedFramework === "jest") args = ["jest", spec];
+    else if (selectedFramework === "vitest") args = ["vitest", "run", spec];
+    else if (selectedFramework === "pytest") { cmd = "pytest"; args = [spec]; }
+    else if (selectedFramework === "npm") { cmd = "npm"; args = ["test", "--", spec]; }
+
+    const runOnce = () =>
+      new Promise((resolve) => {
+        const child = spawn(cmd, args, {
+          cwd,
+          stdio: ["ignore", "pipe", "pipe"],
+          shell: process.platform === "win32",
+          env: process.env,
+        });
+        let stdout = "";
+        let stderr = "";
+        if (child.stdout) child.stdout.on("data", (d) => { stdout += d.toString(); });
+        if (child.stderr) child.stderr.on("data", (d) => { stderr += d.toString(); });
+        child.on("close", (code) => {
+          resolve({
+            passed: code === 0,
+            runOutput: [stdout, stderr].filter(Boolean).join("\n").trim(),
+          });
+        });
+      });
+
+    const results = [];
+    for (let i = 0; i < n; i++) {
+      const r = await runOnce();
+      results.push(r);
+      saveProjectMemory({
+        execution: {
+          testFile: spec,
+          passed: r.passed,
+          duration: 0,
+          timestamp: new Date().toISOString(),
+          framework: selectedFramework,
+          flakyProbe: true,
+          attempt: i + 1,
+        },
+      });
+    }
+
+    const analysis = classifyFlakyFromRuns(results, { minRuns: n });
+    const patterns = analysis.patternHints.map((p) => p.pattern).join(", ") || "n/a";
+    const text = `🔁 detect_flaky_tests — ${spec} (${n}x)
+
+Veredito: **${analysis.verdict}**
+Passou: ${analysis.passed}/${analysis.total} · Falhou: ${analysis.failed}/${analysis.total} · Taxa de falha: ${analysis.failureRate}%
+Padrões nas falhas: ${patterns}
+
+${analysis.isFlaky ? "⚠️ Teste flaky confirmado (resultado misto)." : analysis.isAlwaysFailing ? "❌ Sempre falha — provavelmente bug/ambiente, não flaky." : analysis.isStable ? "✅ Estável nas N execuções." : "ℹ️ Rode mais vezes para concluir."}`;
+
+    return {
+      content: [{ type: "text", text }],
+      structuredContent: {
+        ok: true,
+        verdict: analysis.verdict,
+        failureRate: analysis.failureRate,
+        passed: analysis.passed,
+        failed: analysis.failed,
+        total: analysis.total,
+        isFlaky: analysis.isFlaky,
+        patternHints: analysis.patternHints,
+      },
+    };
+  }
+);
+
+server.registerTool(
+  "report_flaky_tests",
+  {
+    title: "Relatório de testes flaky",
+    description: "Lista testes flaky com % de falha e causa provável, com base no histórico de execuções (.qa-lab-memory.json).",
+    inputSchema: z.object({
+      minRuns: z.number().optional().describe("Mínimo de execuções para considerar. Default: 2."),
+    }),
+    outputSchema: z.object({
+      ok: z.boolean(),
+      flakyCount: z.number(),
+      report: z.string(),
+    }),
+  },
+  async ({ minRuns = 2 } = {}) => {
+    const stability = analyzeTestStability();
+    const flaky = (stability.tests || []).filter(
+      (t) => t.total >= minRuns && t.failureRate > 0 && t.failureRate < 100
+    );
+    const alwaysFail = (stability.tests || []).filter(
+      (t) => t.total >= minRuns && t.failureRate === 100
+    );
+
+    let report = `📋 Relatório flaky\n${stability.message || ""}\n\n`;
+    if (flaky.length === 0 && alwaysFail.length === 0) {
+      report += "Nenhum teste flaky/intermitente no histórico. Rode `detect_flaky_tests` com um spec para gerar evidência.";
+    } else {
+      if (flaky.length) {
+        report += `🟡 Flaky / intermitente (${flaky.length}):\n`;
+        flaky.forEach((t) => {
+          report += `- ${t.file}: ${t.failureRate}% falha (${t.failed}/${t.total}) · estabilidade=${t.stability}\n`;
+        });
+      }
+      if (alwaysFail.length) {
+        report += `\n🔴 Sempre falha (${alwaysFail.length}) — tratar como bug/ambiente:\n`;
+        alwaysFail.forEach((t) => {
+          report += `- ${t.file}: ${t.failed}/${t.total}\n`;
+        });
+      }
+      report += "\nPróximo: `por_que_falhou` no spec flaky ou `detect_flaky_tests` com runs=3.";
+    }
+
+    return {
+      content: [{ type: "text", text: report }],
+      structuredContent: { ok: true, flakyCount: flaky.length, report, flaky, alwaysFail },
     };
   }
 );

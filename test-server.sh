@@ -68,7 +68,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "📋 Próximos passos:"
 echo ""
-echo "1. Configure o MCP no Cursor (~/.cursor/mcp.json):"
+echo "1. Configure o MCP na IDE (~/.config/mcp-lab-agent/mcp.json):"
 echo ""
 echo '   {
      "mcpServers": {
@@ -80,9 +80,9 @@ echo '   {
      }
    }'
 echo ""
-echo "2. Reinicie o Cursor"
+echo "2. Reinicie a IDE"
 echo ""
 echo "3. Teste em um projeto com testes (Cypress, Playwright, Jest)"
 echo ""
-echo "4. No chat do Cursor, digite: 'Detecte a estrutura do meu projeto'"
+echo "4. No chat da IDE, digite: 'Detecte a estrutura do meu projeto'"
 echo ""

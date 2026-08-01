@@ -20,4 +20,4 @@ Baseado em [Creating an app from app settings](https://docs.slack.dev/app-manage
 
 ## Segurança
 
-Mantenha as credenciais em segredo. Use variáveis de ambiente ou `~/.cursor/mcp.json` fora do versionamento.
+Mantenha as credenciais em segredo. Use variáveis de ambiente ou `~/.config/mcp-lab-agent/mcp.json` fora do versionamento.

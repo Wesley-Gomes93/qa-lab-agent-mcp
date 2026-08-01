@@ -10,14 +10,22 @@
     "setup": "node setup.js",
     "check": "node check-config.js"
   },
-  "keywords": ["slack", "qa", "mcp-lab-agent", "testing", "bot"],
+  "keywords": [
+    "slack",
+    "qa",
+    "mcp-lab-agent",
+    "testing",
+    "bot"
+  ],
   "author": "",
   "license": "MIT",
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "@slack/bolt": "^3.21.0",
-    "dotenv": "^16.4.5"
+    "@slack/bolt": "^4.6.0",
+    "dotenv": "^16.4.5",
+    "groq-sdk": "^1.1.2",
+    "localtunnel": "^2.0.2"
   }
 }

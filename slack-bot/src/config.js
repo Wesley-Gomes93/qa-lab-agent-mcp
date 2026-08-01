@@ -38,7 +38,7 @@ function getMcpJsonPath() {
   if (envPath) {
     return expandTilde(envPath);
   }
-  return path.join(os.homedir(), ".cursor", "mcp.json");
+  return path.join(os.homedir(), ".config", "mcp-lab-agent", "mcp.json");
 }
 
 function loadMcpConfig() {
